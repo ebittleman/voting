@@ -107,7 +107,8 @@ func (c *Connection) RegisterTable(name string, table Table) error {
 		buffer := bufio.NewReader(file)
 		for err == nil {
 			fullLine := make([]byte, 0, cap(line))
-			for isPrefix = true; isPrefix; line, isPrefix, err = buffer.ReadLine() {
+			line, isPrefix = line[0:0], true
+			for ; isPrefix; line, isPrefix, err = buffer.ReadLine() {
 				if err != nil {
 					break
 				}
