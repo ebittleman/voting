@@ -83,7 +83,7 @@ func TestRegisterTableFailedWithNonPathError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	conn.fileProvider = func(_ string) (io.ReadCloser, error) {
+	conn.fileProvider = func(_ string) (io.Reader, error) {
 		return nil, fmt.Errorf("Unknown, But Expected Test Error")
 	}
 
@@ -102,7 +102,7 @@ func TestRegisterTableSuccessWithLoading(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	conn.fileProvider = func(_ string) (io.ReadCloser, error) {
+	conn.fileProvider = func(_ string) (io.Reader, error) {
 		return mockFile{
 			Reader: strings.NewReader(`{"key": "value"}`),
 		}, nil
