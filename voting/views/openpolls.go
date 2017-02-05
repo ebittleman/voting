@@ -13,7 +13,7 @@ import (
 
 // OpenPolls keeps a cache of the current open polls
 type OpenPolls struct {
-	ids []string
+	ids map[string]struct{}
 
 	eventStore eventstore.EventStore
 	wrapper    handlers.EventWrapper
@@ -35,51 +35,34 @@ func (o *OpenPolls) loop() {
 			pollOpenedEvents, err := o.eventStore.QueryByEventType("PollOpened")
 			if err != nil {
 				log.Println("Warn: OpenPolls QueryBy PollOpened: ", err)
-				if errCh != nil {
-					errCh <- err
-				}
+				errCh <- err
 				continue
 			}
 
 			pollClosedEvents, err := o.eventStore.QueryByEventType("PollClosed")
 			if err != nil {
 				log.Println("Warn: OpenPolls QueryBy PollClosed: ", err)
-				if errCh != nil {
-					errCh <- err
-				}
+				errCh <- err
 				continue
 			}
 
 			events := append(pollOpenedEvents, pollClosedEvents...)
 			sort.Sort(events)
 
-			tmp := make([]string, 0)
+			tmp := make(map[string]struct{}, 0)
 			for _, event := range events {
 				switch event.Type {
 				case "PollOpened":
-					for _, id := range tmp {
-						if id == event.ID {
-							continue
-						}
-					}
-					tmp = append(tmp, event.ID)
+					tmp[event.ID] = struct{}{}
 				case "PollClosed":
-					for i, id := range tmp {
-						if id == event.ID {
-							tmp[i] = tmp[len(tmp)-1]
-							tmp[len(tmp)-1] = ""
-							tmp = tmp[:len(tmp)-1]
-						}
-					}
+					delete(tmp, event.ID)
 				}
 			}
 
 			o.Lock()
 			o.ids = tmp
 			o.Unlock()
-			if errCh != nil {
-				close(errCh)
-			}
+			close(errCh)
 		}
 	}
 }
@@ -111,8 +94,10 @@ func (o *OpenPolls) List() []string {
 	o.RLock()
 	defer o.RUnlock()
 
-	dst := make([]string, len(o.ids))
-	copy(dst, o.ids)
+	dst := make([]string, 0, len(o.ids))
+	for id := range o.ids {
+		dst = append(dst, id)
+	}
 
 	return dst
 }
@@ -120,23 +105,29 @@ func (o *OpenPolls) List() []string {
 // PollOpenedHandler handles PollOpened events
 func (o *OpenPolls) PollOpenedHandler(event voting.PollOpened) error {
 	log.Println("Info: OpenPolls: Handle Poll Opened")
+	rebuilt := make(chan error)
 	select {
-	case o.rebuild <- nil:
+	case o.rebuild <- rebuilt:
 	case <-o.done:
+		close(rebuilt)
 	default:
+		close(rebuilt)
 	}
-	return nil
+	return <-rebuilt
 }
 
 // PollClosedHandler handles PollClosed events
 func (o *OpenPolls) PollClosedHandler(event voting.PollClosed) error {
 	log.Println("Info: OpenPolls: Handle Poll Closed")
+	rebuilt := make(chan error)
 	select {
-	case o.rebuild <- nil:
+	case o.rebuild <- rebuilt:
 	case <-o.done:
+		close(rebuilt)
 	default:
+		close(rebuilt)
 	}
-	return nil
+	return <-rebuilt
 }
 
 // NewOpenPolls creates a new NewOpenPolls
