@@ -39,6 +39,7 @@ func TestOpenWithSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if conn == nil {
 		t.Fatal("Expected conn to be non-nil")
 	}

@@ -7,14 +7,14 @@ import (
 	"github.com/ebittleman/voting/eventstore/json"
 )
 
-func TestAddIssue(t *testing.T) {
+func TestAppendIssue(t *testing.T) {
 	var poll Poll
 
 	issue := Issue{
 		Topic: "What do you want for dinner?",
 	}
 
-	poll.AddIssue(issue)
+	poll.AppendIssue(issue)
 
 	if len(poll.Issues) != 1 {
 		t.Fatalf("Expected: 1 item, Got: %d item(s)", len(poll.Issues))
@@ -32,8 +32,8 @@ func TestAddDuplicateIssue(t *testing.T) {
 		Topic: "What do you want for dinner?",
 	}
 
-	poll.AddIssue(issue)
-	poll.AddIssue(issue)
+	poll.AppendIssue(issue)
+	poll.AppendIssue(issue)
 
 	if len(poll.Issues) != 1 {
 		t.Fatalf("Expected: 2 item, Got: %d item(s)", len(poll.Issues))
@@ -45,20 +45,27 @@ func TestAddDuplicateIssue(t *testing.T) {
 }
 
 func TestCastBallot(t *testing.T) {
-	id := "poll2"
 	conn, _ := jsondb.Open(".")
 	defer conn.Close()
+
+	id := "poll2"
+	expectedLen, offset := 2, 0
 	store := json.New(conn)
 	events, _ := store.Query(id)
+	hasCreated := len(events) > 0
+	if !hasCreated {
+		offset++
+	}
+
 	poll := LoadPoll(id, events)
+	t.Log(poll.version, hasCreated)
 
-	var ballot Ballot
-
-	poll.AddIssue(Issue{
+	poll.AppendIssue(Issue{
 		Topic:   "What's for lunch?",
 		Choices: []string{"Soup", "Sandwich"},
 	})
 
+	var ballot Ballot
 	for _, issue := range poll.Issues {
 		ballot = append(ballot, Selection{
 			Issue:  issue,
@@ -72,20 +79,30 @@ func TestCastBallot(t *testing.T) {
 	}
 	poll.ClosePolls()
 
+	i := 0
 	newEvents := poll.events
-	if len(newEvents) != 2 {
-		t.Fatalf("Expected: 2 events, Got: %d event(s)", len(newEvents))
+	if len(newEvents) != (expectedLen + offset) {
+		t.Fatalf("Expected: %d events, Got: %d event(s)", (expectedLen + offset), len(newEvents))
 	}
 
-	if newEvents[0].Type != "PollOpened" {
-		t.Fatalf("Expected: `%s`, Got: `%s`", "PollOpened", newEvents[0].Type)
+	if !hasCreated {
+		if newEvents[i].Type != "PollCreated" {
+			t.Fatalf("Expected: `%s`, Got: `%s`", "PollCreated", newEvents[i].Type)
+		}
+		i++
 	}
 
-	if newEvents[1].Type != "PollClosed" {
-		t.Fatalf("Expected: `%s`, Got: `%s`", "PollClosed", newEvents[1].Type)
+	if newEvents[i].Type != "PollOpened" {
+		t.Fatalf("Expected: `%s`, Got: `%s`", "PollOpened", newEvents[i].Type)
+	}
+	i++
+
+	if newEvents[i].Type != "PollClosed" {
+		t.Fatalf("Expected: `%s`, Got: `%s`", "PollClosed", newEvents[i].Type)
 	}
 
-	if err := poll.Commit(store); err != nil {
+	events = poll.Flush()
+	if err := poll.Commit(store, events); err != nil {
 		t.Fatal(err)
 	}
 }

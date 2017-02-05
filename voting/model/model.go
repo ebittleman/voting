@@ -40,9 +40,8 @@ func (a *AggregateRoot) Flush() eventstore.Events {
 
 // Commit writes open events to an event store. TODO: look at inverting this
 // relationship.
-func (a *AggregateRoot) Commit(store eventstore.EventStore) error {
+func (a *AggregateRoot) Commit(store eventstore.EventStore, events eventstore.Events) error {
 	version := a.version
-	events := a.Flush()
 	for _, event := range events {
 		if err := store.Put(a.ID, version, event); err != nil {
 			log.Println("Current Version: ", version, " Event Version: ", event.Version)

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path"
 )
@@ -47,7 +48,10 @@ func Open(path string) (*Connection, error) {
 	connection.path = path
 	connection.tables = make(map[string]Table)
 	connection.fileCreator = func(f string) (io.WriteCloser, error) {
-		return os.Create(f)
+		file, err := os.Create(f)
+		stat, _ := file.Stat()
+		log.Println(stat.Name())
+		return file, err
 	}
 	connection.fileProvider = func(f string) (io.ReadCloser, error) {
 		return os.Open(f)

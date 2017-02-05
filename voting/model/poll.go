@@ -1,9 +1,11 @@
 package model
 
 import (
+	"encoding/json"
 	"errors"
 
 	"github.com/ebittleman/voting/eventstore"
+	"github.com/ebittleman/voting/voting"
 )
 
 var (
@@ -40,8 +42,8 @@ type Poll struct {
 	AggregateRoot
 }
 
-// AddIssue ...
-func (p *Poll) AddIssue(issue Issue) {
+// AppendIssue ...
+func (p *Poll) AppendIssue(issue Issue) {
 	if p.IsOpen {
 		return
 	}
@@ -64,7 +66,6 @@ func (p *Poll) OpenPolls() {
 	}
 
 	p.IsOpen = true
-
 	p.Emit(pollOpenedEvent())
 }
 
@@ -104,9 +105,18 @@ func (p *Poll) CastBallot(ballot Ballot) error {
 
 func LoadPoll(id string, events eventstore.Events) Poll {
 	var poll Poll
-	poll.ID = id
+
+	if len(events) < 1 {
+		poll.ID = id
+		poll.Emit(pollCreatedEvent(id))
+	}
+
 	for _, event := range events {
 		switch event.Type {
+		case "PollCreated":
+			data := new(voting.PollCreated)
+			json.Unmarshal(event.Data, data)
+			poll.ID = data.ID
 		case "PollOpened":
 			poll.IsOpen = true
 		case "PollClosed":
@@ -116,6 +126,13 @@ func LoadPoll(id string, events eventstore.Events) Poll {
 	}
 
 	return poll
+}
+
+func pollCreatedEvent(id string) eventstore.Event {
+	return eventstore.Event{
+		Type: "PollCreated",
+		Data: []byte(`{"id": "` + id + `"}`),
+	}
 }
 
 func pollOpenedEvent() eventstore.Event {
