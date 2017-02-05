@@ -106,8 +106,9 @@ func (c *Connection) RegisterTable(name string, table Table) error {
 
 		buffer := bufio.NewReader(file)
 		for err == nil {
-			fullLine := make([]byte, 0, cap(line))
-			line, isPrefix = line[0:0], true
+
+			fullLine := make([]byte, 0)
+			line, isPrefix, err = buffer.ReadLine()
 			for ; isPrefix; line, isPrefix, err = buffer.ReadLine() {
 				if err != nil {
 					break
@@ -120,6 +121,8 @@ func (c *Connection) RegisterTable(name string, table Table) error {
 				errCh <- err
 				return
 			}
+
+			fullLine = append(fullLine, line...)
 
 			if len(fullLine) < 1 {
 				continue
