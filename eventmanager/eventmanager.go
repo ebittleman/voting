@@ -2,7 +2,9 @@ package eventmanager
 
 import (
 	"errors"
+	"io"
 	"log"
+	"sync"
 
 	"github.com/ebittleman/voting/eventstore"
 )
@@ -13,6 +15,12 @@ var (
 
 type EventHandler func(eventstore.Event) error
 type Subscription interface{}
+type EventManager interface {
+	Publish(event eventstore.Event)
+	Subscribe(eventType string, handler EventHandler) Subscription
+	Unsubscribe(v Subscription) error
+	io.Closer
+}
 type subscription struct {
 	eventType string
 	handler   EventHandler
@@ -38,6 +46,15 @@ type eventManager struct {
 
 	done   chan chan error
 	closed chan struct{}
+
+	sync.WaitGroup
+}
+
+// New creates a new event manager
+func New() EventManager {
+	em := new(eventManager)
+	em.init()
+	return em
 }
 
 func (e *eventManager) init() {
@@ -64,6 +81,7 @@ func (e *eventManager) loop() {
 			e.unsubscribe(req.sub)
 			req.resp <- nil
 		case errCh := <-e.done:
+			e.Wait()
 			errCh <- nil
 			close(e.closed)
 			return
@@ -78,7 +96,9 @@ func (e *eventManager) publish(event eventstore.Event) {
 	}
 
 	for _, sub := range subs {
+		e.Add(1)
 		go func(sub *subscription) {
+			defer e.Done()
 			if err := sub.handler(event); err != nil {
 				log.Println("Error: ", err)
 				go e.Unsubscribe(sub)
@@ -132,7 +152,10 @@ func (e *eventManager) Publish(event eventstore.Event) {
 	}()
 }
 
-func (e *eventManager) Subscribe(eventType string, handler EventHandler) Subscription {
+func (e *eventManager) Subscribe(
+	eventType string,
+	handler EventHandler,
+) Subscription {
 	req := subscribeReq{
 		eventType: eventType,
 		handler:   handler,
