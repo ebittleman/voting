@@ -33,8 +33,8 @@ type Table interface {
 type Connection struct {
 	path         string
 	tables       map[string]Table
-	fileProvider func(string) (io.ReadCloser, error)
-	fileCreator  func(string) (io.WriteCloser, error)
+	fileProvider func(string) (io.Reader, error)
+	fileCreator  func(string) (io.Writer, error)
 	sync.Mutex
 }
 
@@ -49,17 +49,27 @@ func Open(path string) (*Connection, error) {
 	connection := new(Connection)
 	connection.path = path
 	connection.tables = make(map[string]Table)
-	connection.fileCreator = func(f string) (io.WriteCloser, error) {
+	connection.fileCreator = func(f string) (io.Writer, error) {
 		file, err := os.Create(f)
 		stat, _ := file.Stat()
 		log.Println("Debug: ", stat.Name())
 		return file, err
 	}
-	connection.fileProvider = func(f string) (io.ReadCloser, error) {
+	connection.fileProvider = func(f string) (io.Reader, error) {
 		return os.Open(f)
 	}
 
 	return connection, nil
+}
+
+// SetFileProvider gives some customizability in how we load data
+func (c *Connection) SetFileProvider(fileCreator func(f string) (io.Reader, error)) {
+	c.fileProvider = fileCreator
+}
+
+// SetFileCreator gives some customizability in how we save data
+func (c *Connection) SetFileCreator(fileCreator func(f string) (io.Writer, error)) {
+	c.fileCreator = fileCreator
 }
 
 // RegisterTable adds a table implementation the the database.
@@ -76,7 +86,7 @@ func (c *Connection) RegisterTable(name string, table Table) error {
 		defer close(errCh)
 
 		var (
-			file     io.ReadCloser
+			file     io.Reader
 			line     []byte
 			isPrefix bool
 			err      error
@@ -89,7 +99,10 @@ func (c *Connection) RegisterTable(name string, table Table) error {
 			errCh <- err
 			return
 		}
-		defer file.Close()
+
+		if closer, ok := file.(io.Closer); ok {
+			defer closer.Close()
+		}
 
 		buffer := bufio.NewReader(file)
 		for err == nil {
@@ -132,7 +145,7 @@ func (c *Connection) Close() error {
 	c.Lock()
 	defer c.Unlock()
 	var (
-		file io.WriteCloser
+		file io.Writer
 		data []byte
 		err  error
 	)
@@ -143,18 +156,24 @@ func (c *Connection) Close() error {
 
 		for record := range table.Scan() {
 			if data, err = record.MarshalJSON(); err != nil {
-				file.Close()
+				if closer, ok := file.(io.Closer); ok {
+					closer.Close()
+				}
 				return err
 			}
 
 			if _, err = fmt.Fprintln(file, string(data)); err != nil {
-				file.Close()
+				if closer, ok := file.(io.Closer); ok {
+					closer.Close()
+				}
 				return err
 			}
 		}
 
-		if err = file.Close(); err != nil {
-			return err
+		if closer, ok := file.(io.Closer); ok {
+			if err = closer.Close(); err != nil {
+				return err
+			}
 		}
 	}
 

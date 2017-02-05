@@ -88,14 +88,14 @@ func (p *eventWrapper) EventHandler(event eventstore.Event) error {
 		})
 	case "IssueAppended":
 		issueAppended := new(voting.IssueAppended)
-		if err := json.Unmarshal(event.Data, issueAppended); err != nil {
+		if err := json.Unmarshal(*event.Data, issueAppended); err != nil {
 			return err
 		}
 
 		return p.IssueAppendedHandler(*issueAppended)
 	case "BallotCast":
 		ballotCast := make(voting.BallotCast, 0)
-		if err := json.Unmarshal(event.Data, &ballotCast); err != nil {
+		if err := json.Unmarshal(*event.Data, &ballotCast); err != nil {
 			return err
 		}
 

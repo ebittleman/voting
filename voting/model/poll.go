@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"sort"
 
 	"github.com/ebittleman/voting/eventstore"
 	"github.com/ebittleman/voting/voting"
@@ -118,13 +119,15 @@ func LoadPoll(id string, events eventstore.Events) Poll {
 	if len(events) < 1 {
 		poll.ID = id
 		poll.Emit(pollCreatedEvent(id))
+		return poll
 	}
 
+	sort.Sort(events)
 	for _, event := range events {
 		switch event.Type {
 		case "PollCreated":
 			data := new(voting.PollCreated)
-			json.Unmarshal(event.Data, data)
+			json.Unmarshal(*event.Data, data)
 			poll.ID = data.ID
 		case "PollOpened":
 			poll.IsOpen = true
@@ -132,7 +135,7 @@ func LoadPoll(id string, events eventstore.Events) Poll {
 			poll.IsOpen = false
 		case "IssueAppended":
 			data := new(voting.IssueAppended)
-			if err := json.Unmarshal(event.Data, data); err != nil {
+			if err := json.Unmarshal(*event.Data, data); err != nil {
 				log.Println("Error: Replaying IssueAppended: ", err)
 				continue
 			}
@@ -143,7 +146,7 @@ func LoadPoll(id string, events eventstore.Events) Poll {
 			poll.Issues = append(poll.Issues, *issue)
 		case "BallotCast":
 			data := make(voting.BallotCast, 0)
-			if err := json.Unmarshal(event.Data, &data); err != nil || len(data) < 1 {
+			if err := json.Unmarshal(*event.Data, &data); err != nil || len(data) < 1 {
 				log.Println("Error: Replaying BallotCast: ", err)
 				continue
 			}
@@ -180,17 +183,19 @@ func issueAppended(
 		Choices:    choices,
 		CanWriteIn: canWriteIn,
 	}
-	data, _ := json.Marshal(eventData)
+
+	bytes, _ := json.Marshal(eventData)
+	data := json.RawMessage(bytes)
 	return eventstore.Event{
 		Type: "IssueAppended",
-		Data: data,
+		Data: &data,
 	}
 }
 
 func ballotCast(
 	ballot Ballot,
 ) eventstore.Event {
-	var data voting.BallotCast
+	var ballotEvent voting.BallotCast
 	for _, selection := range ballot {
 		wroteIn := len(selection.WriteIn) > 0
 		eventData := voting.BallotSelection{
@@ -200,19 +205,21 @@ func ballotCast(
 			WriteIn:    selection.WriteIn,
 			Comment:    selection.Comment,
 		}
-		data = append(data, eventData)
+		ballotEvent = append(ballotEvent, eventData)
 	}
-	jsonData, _ := json.Marshal(data)
+	bytes, _ := json.Marshal(ballotEvent)
+	data := json.RawMessage(bytes)
 	return eventstore.Event{
 		Type: "BallotCast",
-		Data: jsonData,
+		Data: &data,
 	}
 }
 
 func pollCreatedEvent(id string) eventstore.Event {
+	data := json.RawMessage(`{"id": "` + id + `"}`)
 	return eventstore.Event{
 		Type: "PollCreated",
-		Data: []byte(`{"id": "` + id + `"}`),
+		Data: &data,
 	}
 }
 

@@ -1,12 +1,14 @@
 package eventstore
 
+import "encoding/json"
+
 // Event an event store record
 type Event struct {
-	ID        string `json:"id"`
-	Version   int64  `json:"version"`
-	Type      string `json:"type"`
-	Timestamp int64  `json:"timestamp"`
-	Data      []byte `json:"data"`
+	ID        string           `json:"id"`
+	Version   int64            `json:"version"`
+	Type      string           `json:"type"`
+	Timestamp int64            `json:"timestamp"`
+	Data      *json.RawMessage `json:"data"`
 }
 
 // Events list of Event
