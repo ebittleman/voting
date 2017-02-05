@@ -4,7 +4,7 @@ import (
 	"log"
 	"time"
 
-	"code.bittles.net/voting/eventstore"
+	"github.com/ebittleman/voting/eventstore"
 )
 
 // AggregateRoot entity event streams are partitioned on

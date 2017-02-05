@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"code.bittles.net/voting/database/json"
-	"code.bittles.net/voting/eventstore"
+	"github.com/ebittleman/voting/database/json"
+	"github.com/ebittleman/voting/eventstore"
 )
 
 func TestNewStore(t *testing.T) {

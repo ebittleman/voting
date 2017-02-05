@@ -7,8 +7,8 @@ import (
 	"sort"
 	"sync"
 
-	jsondb "code.bittles.net/voting/database/json"
-	"code.bittles.net/voting/eventstore"
+	jsondb "github.com/ebittleman/voting/database/json"
+	"github.com/ebittleman/voting/eventstore"
 )
 
 // New creates a json backed event store

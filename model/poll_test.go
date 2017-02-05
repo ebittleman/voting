@@ -3,8 +3,8 @@ package model
 import (
 	"testing"
 
-	jsondb "code.bittles.net/voting/database/json"
-	"code.bittles.net/voting/eventstore/json"
+	jsondb "github.com/ebittleman/voting/database/json"
+	"github.com/ebittleman/voting/eventstore/json"
 )
 
 func TestAddIssue(t *testing.T) {

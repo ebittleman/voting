@@ -3,7 +3,7 @@ package model
 import (
 	"errors"
 
-	"code.bittles.net/voting/eventstore"
+	"github.com/ebittleman/voting/eventstore"
 )
 
 var (

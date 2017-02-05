@@ -24,3 +24,5 @@
 {"id":"poll1","version":22,"type":"PollClosed","timestamp":1486230072,"data":null}
 {"id":"poll2","version":3,"type":"PollOpened","timestamp":1486230076,"data":null}
 {"id":"poll2","version":4,"type":"PollClosed","timestamp":1486230076,"data":null}
+{"id":"poll2","version":5,"type":"PollOpened","timestamp":1486253981,"data":null}
+{"id":"poll2","version":6,"type":"PollClosed","timestamp":1486253981,"data":null}
