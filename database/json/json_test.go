@@ -120,13 +120,17 @@ type mockTable struct {
 func (m mockTable) Scan() chan json.RawMessage {
 	return nil
 }
+
 func (m mockTable) Put(interface{}) error {
 	return nil
 }
-func (m mockTable) Load(records chan json.RawMessage) {
+
+func (m mockTable) Load(records chan json.RawMessage) error {
 	for record := range records {
 		m.t.Log(string(record))
 	}
+
+	return nil
 }
 
 type mockFile struct {

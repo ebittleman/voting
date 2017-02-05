@@ -10,7 +10,10 @@ import (
 
 func TestNewStore(t *testing.T) {
 	conn, _ := json.Open(".")
-	store := New(conn)
+	store, err := New(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	events, err := store.Query("id")
 	if err != nil {

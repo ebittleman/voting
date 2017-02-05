@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path"
+	"sync"
 )
 
 var (
@@ -25,7 +26,7 @@ var (
 type Table interface {
 	Scan() chan json.RawMessage
 	Put(interface{}) error
-	Load(chan json.RawMessage)
+	Load(chan json.RawMessage) error
 }
 
 // Connection simple json database
@@ -34,6 +35,7 @@ type Connection struct {
 	tables       map[string]Table
 	fileProvider func(string) (io.ReadCloser, error)
 	fileCreator  func(string) (io.WriteCloser, error)
+	sync.Mutex
 }
 
 // Open creates a new json db connection from the passed file
@@ -50,7 +52,7 @@ func Open(path string) (*Connection, error) {
 	connection.fileCreator = func(f string) (io.WriteCloser, error) {
 		file, err := os.Create(f)
 		stat, _ := file.Stat()
-		log.Println(stat.Name())
+		log.Println("Debug: ", stat.Name())
 		return file, err
 	}
 	connection.fileProvider = func(f string) (io.ReadCloser, error) {
@@ -62,6 +64,8 @@ func Open(path string) (*Connection, error) {
 
 // RegisterTable adds a table implementation the the database.
 func (c *Connection) RegisterTable(name string, table Table) error {
+	c.Lock()
+	defer c.Unlock()
 	if _, ok := c.tables[name]; ok {
 		return ErrTableExists
 	}
@@ -70,9 +74,15 @@ func (c *Connection) RegisterTable(name string, table Table) error {
 	go func() {
 		defer close(records)
 		defer close(errCh)
-		var line []byte
-		file, err := c.fileProvider(path.Join(c.path, name+".json"))
-		if err != nil {
+
+		var (
+			file     io.ReadCloser
+			line     []byte
+			isPrefix bool
+			err      error
+		)
+
+		if file, err = c.fileProvider(path.Join(c.path, name+".json")); err != nil {
 			if _, ok := err.(*os.PathError); ok {
 				return
 			}
@@ -80,27 +90,47 @@ func (c *Connection) RegisterTable(name string, table Table) error {
 			return
 		}
 		defer file.Close()
+
 		buffer := bufio.NewReader(file)
 		for err == nil {
-			line, _, err = buffer.ReadLine()
-			if len(line) < 1 {
+			fullLine := make([]byte, 0, cap(line))
+			for isPrefix = true; isPrefix; line, isPrefix, err = buffer.ReadLine() {
+				if err != nil {
+					break
+				}
+				fullLine = append(fullLine, line...)
+			}
+
+			if err != nil && err != io.EOF {
+				log.Println("Error Reading json table file: ", err)
+				errCh <- err
+				return
+			}
+
+			if len(fullLine) < 1 {
 				continue
 			}
-			records <- json.RawMessage(line)
-		}
-		if err != nil && err != io.EOF {
-			errCh <- err
-			return
+
+			records <- json.RawMessage(fullLine)
 		}
 	}()
 
-	table.Load(records)
+	if err := table.Load(records); err != nil {
+		return err
+	}
+
+	if err := <-errCh; err != nil {
+		return err
+	}
+
 	c.tables[name] = table
-	return <-errCh
+	return nil
 }
 
 // Close flushes write buffer to disk and closes the file.
 func (c *Connection) Close() error {
+	c.Lock()
+	defer c.Unlock()
 	var (
 		file io.WriteCloser
 		data []byte

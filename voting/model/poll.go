@@ -3,33 +3,37 @@ package model
 import (
 	"encoding/json"
 	"errors"
+	"log"
 
 	"github.com/ebittleman/voting/eventstore"
 	"github.com/ebittleman/voting/voting"
 )
 
 var (
-	ErrIssueNotOnPoll = errors.New("Issue on submitted ballot not on poll.")
-	ErrPollClosed     = errors.New("Must wait for polls to be open.")
+	// ErrIssueNotOnPoll returned when a Ballot is cast with a Selection to an
+	// Issue not on the poll.
+	ErrIssueNotOnPoll = errors.New("Issue on submitted ballot not on poll")
+	// ErrPollClosed is returned what a Ballot is cast when the poll is not open.
+	ErrPollClosed = errors.New("Must wait for polls to be open")
 )
 
-// Issue ...
+// Issue describes a question being asked in a poll.
 type Issue struct {
 	Topic      string
 	Choices    []string
 	CanWriteIn bool
 }
 
-// Selection ...
+// Selection describes the choice or write in of an issue.
 type Selection struct {
 	Issue   Issue
 	WroteIn bool
 	Choice  int
-	WriteIn []byte
-	Comment []byte
+	WriteIn string
+	Comment string
 }
 
-// Ballot ..
+// Ballot list of sections for a poll.
 type Ballot []Selection
 
 // Poll aggregate root in the voting system
@@ -42,7 +46,8 @@ type Poll struct {
 	AggregateRoot
 }
 
-// AppendIssue ...
+// AppendIssue adds an issue to a poll. Can only be done if the poll is not
+// open.
 func (p *Poll) AppendIssue(issue Issue) {
 	if p.IsOpen {
 		return
@@ -56,10 +61,10 @@ func (p *Poll) AppendIssue(issue Issue) {
 
 	p.Issues = append(p.Issues, issue)
 
-	// p.Emit()
+	p.Emit(issueAppended(issue.Topic, issue.Choices, issue.CanWriteIn))
 }
 
-// OpenPolls ...
+// OpenPolls opens a poll allowing for ballots to be placed.
 func (p *Poll) OpenPolls() {
 	if p.IsOpen {
 		return
@@ -69,7 +74,7 @@ func (p *Poll) OpenPolls() {
 	p.Emit(pollOpenedEvent())
 }
 
-// ClosePolls ...
+// ClosePolls closes a poll stopping ballots from being placed.
 func (p *Poll) ClosePolls() {
 	if !p.IsOpen {
 		return
@@ -79,7 +84,8 @@ func (p *Poll) ClosePolls() {
 	p.Emit(pollClosedEvent())
 }
 
-// CastBallot ..
+// CastBallot adds a list of votes. Can only be run when the poll is open. And
+// Only selections to issues on in poll are allowed.
 func (p *Poll) CastBallot(ballot Ballot) error {
 	if !p.IsOpen {
 		return ErrPollClosed
@@ -100,9 +106,12 @@ func (p *Poll) CastBallot(ballot Ballot) error {
 
 	p.Ballots = append(p.Ballots, ballot)
 
+	p.Emit(ballotCast(ballot))
+
 	return nil
 }
 
+// LoadPoll loads a poll by id from a list of events.
 func LoadPoll(id string, events eventstore.Events) Poll {
 	var poll Poll
 
@@ -121,11 +130,83 @@ func LoadPoll(id string, events eventstore.Events) Poll {
 			poll.IsOpen = true
 		case "PollClosed":
 			poll.IsOpen = false
+		case "IssueAppended":
+			data := new(voting.IssueAppended)
+			if err := json.Unmarshal(event.Data, data); err != nil {
+				log.Println("Error: Replaying IssueAppended: ", err)
+				continue
+			}
+			issue := new(Issue)
+			issue.Topic = data.Topic
+			issue.Choices = data.Choices
+			issue.CanWriteIn = data.CanWriteIn
+			poll.Issues = append(poll.Issues, *issue)
+		case "BallotCast":
+			data := make(voting.BallotCast, 0)
+			if err := json.Unmarshal(event.Data, &data); err != nil || len(data) < 1 {
+				log.Println("Error: Replaying BallotCast: ", err)
+				continue
+			}
+
+			ballot := make(Ballot, 0)
+			for _, eventData := range data {
+				for _, issue := range poll.Issues {
+					if issue.Topic == eventData.IssueTopic {
+						selection := new(Selection)
+						selection.Issue = issue
+						selection.WroteIn = eventData.WroteIn
+						selection.Choice = eventData.Choice
+						selection.WriteIn = eventData.WriteIn
+						selection.Comment = eventData.Comment
+						ballot = append(ballot, *selection)
+					}
+				}
+			}
+			poll.Ballots = append(poll.Ballots, ballot)
 		}
 		poll.version = event.Version
 	}
 
 	return poll
+}
+
+func issueAppended(
+	topic string,
+	choices []string,
+	canWriteIn bool,
+) eventstore.Event {
+	eventData := voting.IssueAppended{
+		Topic:      topic,
+		Choices:    choices,
+		CanWriteIn: canWriteIn,
+	}
+	data, _ := json.Marshal(eventData)
+	return eventstore.Event{
+		Type: "IssueAppended",
+		Data: data,
+	}
+}
+
+func ballotCast(
+	ballot Ballot,
+) eventstore.Event {
+	var data voting.BallotCast
+	for _, selection := range ballot {
+		wroteIn := len(selection.WriteIn) > 0
+		eventData := voting.BallotSelection{
+			IssueTopic: selection.Issue.Topic,
+			WroteIn:    wroteIn,
+			Choice:     selection.Choice,
+			WriteIn:    selection.WriteIn,
+			Comment:    selection.Comment,
+		}
+		data = append(data, eventData)
+	}
+	jsonData, _ := json.Marshal(data)
+	return eventstore.Event{
+		Type: "BallotCast",
+		Data: jsonData,
+	}
 }
 
 func pollCreatedEvent(id string) eventstore.Event {

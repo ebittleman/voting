@@ -25,5 +25,6 @@ func (e Events) Less(i, j int) bool {
 // EventStore component that manages system events.
 type EventStore interface {
 	Query(string) (Events, error)
+	QueryByEventType(string) (Events, error)
 	Put(string, int64, Event) error
 }

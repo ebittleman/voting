@@ -12,19 +12,44 @@ import (
 )
 
 // New creates a json backed event store
-func New(conn *jsondb.Connection) eventstore.EventStore {
+func New(conn *jsondb.Connection) (eventstore.EventStore, error) {
 	table := new(table)
-	conn.RegisterTable("events", table)
+	if err := conn.RegisterTable("events", table); err != nil {
+		return nil, err
+	}
 
 	store := new(store)
 	store.table = table
 
-	return store
+	return store, nil
 }
 
 type store struct {
 	table jsondb.Table
 	sync.RWMutex
+}
+
+func (s *store) QueryByEventType(eventType string) (eventstore.Events, error) {
+	s.RLock()
+	defer s.RUnlock()
+	var events eventstore.Events
+
+	for records := range s.table.Scan() {
+		event := new(eventstore.Event)
+		if err := json.Unmarshal(records, event); err != nil {
+			return nil, err
+		}
+
+		if event.Type != eventType {
+			continue
+		}
+
+		events = append(events, *event)
+	}
+
+	sort.Sort(events)
+
+	return events, nil
 }
 
 func (s *store) Query(id string) (eventstore.Events, error) {
@@ -34,7 +59,10 @@ func (s *store) Query(id string) (eventstore.Events, error) {
 
 	for records := range s.table.Scan() {
 		event := new(eventstore.Event)
-		json.Unmarshal(records, event)
+		if err := json.Unmarshal(records, event); err != nil {
+			return nil, err
+		}
+
 		if event.ID != id {
 			continue
 		}
@@ -59,7 +87,8 @@ func (s *store) Put(id string, version int64, event eventstore.Event) error {
 
 	s.Lock()
 	defer s.Unlock()
-	if num := len(events); num > 0 && events[num-1].Version != version {
+	if num := len(events); num > 0 &&
+		(events[num-1].Version != version || event.Version < version) {
 		return fmt.Errorf("Conflict Error")
 	}
 
@@ -98,8 +127,10 @@ func (t *table) Put(v interface{}) error {
 	return nil
 }
 
-func (t *table) Load(records chan json.RawMessage) {
+func (t *table) Load(records chan json.RawMessage) error {
 	for record := range records {
 		t.records = append(t.records, record)
 	}
+
+	return nil
 }
