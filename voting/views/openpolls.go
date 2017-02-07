@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/ebittleman/voting/eventstore"
+	"github.com/ebittleman/voting/voting/model"
 )
 
 var (
@@ -17,9 +18,14 @@ var (
 	ErrClosed = errors.New("View is not current running")
 )
 
+type ballotStub struct {
+	ID     string        `json:"id"`
+	Issues []model.Issue `json:"issues"`
+}
+
 // OpenPolls keeps a cache of the current open polls
 type OpenPolls struct {
-	ids map[string]struct{}
+	ids map[string]*ballotStub
 
 	eventStore eventstore.EventStore
 
@@ -54,14 +60,29 @@ func (o *OpenPolls) loop() {
 			events := append(pollOpenedEvents, pollClosedEvents...)
 			sort.Sort(events)
 
-			tmp := make(map[string]struct{}, 0)
+			tmp := make(map[string]*ballotStub)
 			for _, event := range events {
 				switch event.Type {
 				case "PollOpened":
-					tmp[event.ID] = struct{}{}
+					tmp[event.ID] = nil
 				case "PollClosed":
 					delete(tmp, event.ID)
 				}
+			}
+
+			for id := range tmp {
+				events, err := o.eventStore.Query(id)
+				if err == nil {
+					poll := model.LoadPoll(id, events)
+					stub := new(ballotStub)
+					stub.ID = poll.ID
+					stub.Issues = poll.Issues
+					tmp[id] = stub
+					continue
+				}
+				log.Println("Warn: OpenPolls QueryBy PollClosed: ", err)
+				errCh <- err
+				break
 			}
 
 			o.Lock()
@@ -90,13 +111,13 @@ func (o *OpenPolls) Close() error {
 }
 
 // List returns list of currently open polls
-func (o *OpenPolls) List() []string {
+func (o *OpenPolls) List() []interface{} {
 	o.RLock()
 	defer o.RUnlock()
 
-	dst := make([]string, 0, len(o.ids))
-	for id := range o.ids {
-		dst = append(dst, id)
+	dst := make([]interface{}, 0, len(o.ids))
+	for _, stub := range o.ids {
+		dst = append(dst, stub)
 	}
 
 	return dst
