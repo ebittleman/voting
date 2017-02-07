@@ -22,6 +22,7 @@ func main() {
 }
 
 func run() int {
+	// get a directory to put our json files in
 	conn, err := jsondb.Open("./.data")
 	if err != nil {
 		log.Println("Fatal: ", err)
@@ -29,18 +30,21 @@ func run() int {
 	}
 	defer conn.Close()
 
+	// creates an event store that will write to event.json when it closes
 	eventStore, err := json.New(conn)
 	if err != nil {
 		log.Println("Fatal: ", err)
 		return 1
 	}
 
+	// creates a simple json table for store view data
 	viewsTable, err := views.NewTable(conn)
 	if err != nil {
 		log.Println("Fatal: ", err)
 		return 1
 	}
 
+	// processes the current event store and builds a view of all "Open" polls
 	openPollsView, err := votingViews.NewOpenPolls(eventStore)
 	if err != nil {
 		log.Println("Fatal: ", err)
@@ -48,13 +52,19 @@ func run() int {
 	}
 	defer openPollsView.Close()
 
+	// component that routes events in the local process
 	eventManager := eventmanager.New()
-
-	openPollsHandler := handlers.NewOpenPolls(openPollsView, viewsTable, eventManager)
-	defer openPollsHandler.Close()
 	defer eventManager.Close()
 
+	// listens for PollOpened and PollClosed events, triggers the openPollsView
+	// to rebuild, then saves it to the viewsTable
+	openPollsHandler := handlers.NewOpenPolls(openPollsView, viewsTable, eventManager)
+	defer openPollsHandler.Close()
+
+	// generate a new poll id
 	id := uuid.NewV4().String()
+
+	// initialize a new CreatePoll command
 	createPoll := commands.NewCreatePoll(
 		eventStore,
 		eventManager,
@@ -71,18 +81,22 @@ func run() int {
 		},
 	)
 
+	// create the poll
 	err = createPoll.Run()
 	if err != nil {
 		log.Println("Fatal: ", err)
 		return 1
 	}
 
+	// initialize the OpenPoll command and reuse the the same id to open our
+	// newly created poll
 	openPoll := commands.NewOpenPoll(
 		eventStore,
 		eventManager,
 		id,
 	)
 
+	// open the poll
 	err = openPoll.Run()
 	if err != nil {
 		log.Println("Fatal: ", err)
