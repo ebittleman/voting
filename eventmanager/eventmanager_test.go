@@ -54,10 +54,13 @@ func TestUnsubscribe(t *testing.T) {
 type mockHandler struct {
 	called int
 	sync.WaitGroup
+	sync.Mutex
 }
 
 func (m *mockHandler) handle(_ eventstore.Event) error {
+	m.Lock()
 	m.called++
+	m.Unlock()
 	m.Done()
 	return nil
 }

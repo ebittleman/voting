@@ -82,6 +82,7 @@ func (e *eventManager) loop() {
 			req.resp <- nil
 		case errCh := <-e.done:
 			e.Wait()
+			log.Println("All Events Processed")
 			errCh <- nil
 			close(e.closed)
 			return
@@ -101,7 +102,6 @@ func (e *eventManager) publish(event eventstore.Event) {
 			defer e.Done()
 			if err := sub.handler(event); err != nil {
 				log.Println("Error: ", err)
-				go e.Unsubscribe(sub)
 			}
 		}(sub.(*subscription))
 	}
@@ -144,12 +144,10 @@ func (e *eventManager) unsubscribe(v Subscription) {
 }
 
 func (e *eventManager) Publish(event eventstore.Event) {
-	go func() {
-		select {
-		case e.publishCh <- event:
-		case <-e.closed:
-		}
-	}()
+	select {
+	case e.publishCh <- event:
+	case <-e.closed:
+	}
 }
 
 func (e *eventManager) Subscribe(

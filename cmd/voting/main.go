@@ -3,7 +3,6 @@ package main
 import (
 	"log"
 	"os"
-	"time"
 
 	jsondb "github.com/ebittleman/voting/database/json"
 	"github.com/ebittleman/voting/eventmanager"
@@ -30,9 +29,6 @@ func run() int {
 	}
 	defer conn.Close()
 
-	eventManager := eventmanager.New()
-	defer eventManager.Close()
-
 	eventStore, err := json.New(conn)
 	if err != nil {
 		log.Println("Fatal: ", err)
@@ -52,8 +48,11 @@ func run() int {
 	}
 	defer openPollsView.Close()
 
+	eventManager := eventmanager.New()
+
 	openPollsHandler := handlers.NewOpenPolls(openPollsView, viewsTable, eventManager)
 	defer openPollsHandler.Close()
+	defer eventManager.Close()
 
 	id := uuid.NewV4().String()
 	createPoll := commands.NewCreatePoll(
@@ -89,8 +88,6 @@ func run() int {
 		log.Println("Fatal: ", err)
 		return 1
 	}
-
-	time.Sleep(time.Second)
 
 	return 0
 }
