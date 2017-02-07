@@ -16,6 +16,9 @@ var (
 	ErrIssueNotOnPoll = errors.New("Issue on submitted ballot not on poll")
 	// ErrPollClosed is returned what a Ballot is cast when the poll is not open.
 	ErrPollClosed = errors.New("Must wait for polls to be open")
+	// ErrPollAlreadyOpen is returned when trying to open a poll that is already
+	// open
+	ErrPollAlreadyOpen = errors.New("Poll already open")
 )
 
 // Issue describes a question being asked in a poll.
@@ -66,13 +69,15 @@ func (p *Poll) AppendIssue(issue Issue) {
 }
 
 // OpenPolls opens a poll allowing for ballots to be placed.
-func (p *Poll) OpenPolls() {
+func (p *Poll) OpenPolls() error {
 	if p.IsOpen {
-		return
+		return ErrPollAlreadyOpen
 	}
 
 	p.IsOpen = true
 	p.Emit(pollOpenedEvent())
+
+	return nil
 }
 
 // ClosePolls closes a poll stopping ballots from being placed.
@@ -167,7 +172,7 @@ func LoadPoll(id string, events eventstore.Events) Poll {
 			}
 			poll.Ballots = append(poll.Ballots, ballot)
 		}
-		poll.version = event.Version
+		poll.Version = event.Version
 	}
 
 	return poll

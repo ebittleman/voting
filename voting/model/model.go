@@ -10,7 +10,7 @@ import (
 // AggregateRoot entity event streams are partitioned on
 type AggregateRoot struct {
 	ID      string
-	version int64
+	Version int64
 
 	events eventstore.Events
 }
@@ -21,7 +21,7 @@ func (a *AggregateRoot) Emit(event eventstore.Event) {
 	if numEvents := len(a.events); numEvents > 0 {
 		version = a.events[numEvents-1].Version + 1
 	} else {
-		version = a.version + 1
+		version = a.Version + 1
 	}
 
 	event.ID = a.ID
@@ -41,7 +41,7 @@ func (a *AggregateRoot) Flush() eventstore.Events {
 // Commit writes open events to an event store. TODO: look at inverting this
 // relationship.
 func (a *AggregateRoot) Commit(store eventstore.EventStore, events eventstore.Events) error {
-	version := a.version
+	version := a.Version
 	for _, event := range events {
 		if err := store.Put(a.ID, version, event); err != nil {
 			log.Println("Current Version: ", version, " Event Version: ", event.Version)
@@ -51,7 +51,7 @@ func (a *AggregateRoot) Commit(store eventstore.EventStore, events eventstore.Ev
 		version = event.Version
 	}
 
-	a.version = version
+	a.Version = version
 
 	return nil
 }

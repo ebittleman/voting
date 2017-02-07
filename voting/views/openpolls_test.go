@@ -8,7 +8,6 @@ import (
 	"time"
 
 	jsondb "github.com/ebittleman/voting/database/json"
-	"github.com/ebittleman/voting/eventmanager"
 	"github.com/ebittleman/voting/eventstore"
 	"github.com/ebittleman/voting/eventstore/json"
 )
@@ -30,12 +29,11 @@ func TestOpenPoll(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	eventManager := eventmanager.New()
-
-	openPolls, err := NewOpenPolls(eventStore, eventManager)
+	openPolls, err := NewOpenPolls(eventStore)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer openPolls.Close()
 
 	for _, id := range openPolls.List() {
 		t.Log(id)
@@ -58,11 +56,9 @@ func TestOpenPoll(t *testing.T) {
 		}
 	}
 
-	for _, event := range events {
-		eventManager.Publish(event)
+	if err := openPolls.Rebuild(); err != nil {
+		t.Fatal(err)
 	}
-
-	time.Sleep(time.Millisecond * 10)
 
 	for _, id := range openPolls.List() {
 		t.Log(id)

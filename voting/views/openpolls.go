@@ -1,14 +1,20 @@
 package views
 
 import (
+	"errors"
 	"log"
 	"sort"
 	"sync"
 
-	"github.com/ebittleman/voting/eventmanager"
 	"github.com/ebittleman/voting/eventstore"
-	"github.com/ebittleman/voting/voting"
-	"github.com/ebittleman/voting/voting/handlers"
+)
+
+var (
+	// ErrProcessing returned when a view is already rebuilding.
+	ErrProcessing = errors.New("View is already processing")
+	// ErrClosed returned when a view has been shutdown and is no longer servicing
+	// requests.
+	ErrClosed = errors.New("View is not current running")
 )
 
 // OpenPolls keeps a cache of the current open polls
@@ -16,7 +22,6 @@ type OpenPolls struct {
 	ids map[string]struct{}
 
 	eventStore eventstore.EventStore
-	wrapper    handlers.EventWrapper
 
 	rebuild chan chan error
 	close   chan struct{}
@@ -76,14 +81,9 @@ func (o *OpenPolls) Close() error {
 	default:
 	}
 
-	o.Lock()
-	defer o.Unlock()
-	if err := o.wrapper.Close(); err != nil {
-		return err
-	}
-
 	select {
 	case o.close <- struct{}{}:
+		<-o.done
 	case <-o.done:
 	}
 	return nil
@@ -102,30 +102,15 @@ func (o *OpenPolls) List() []string {
 	return dst
 }
 
-// PollOpenedHandler handles PollOpened events
-func (o *OpenPolls) PollOpenedHandler(event voting.PollOpened) error {
-	log.Println("Info: OpenPolls: Handle Poll Opened")
+// Rebuild triggers the view to rebuild
+func (o *OpenPolls) Rebuild() (err error) {
 	rebuilt := make(chan error)
 	select {
 	case o.rebuild <- rebuilt:
 	case <-o.done:
-		close(rebuilt)
+		return ErrClosed
 	default:
-		close(rebuilt)
-	}
-	return <-rebuilt
-}
-
-// PollClosedHandler handles PollClosed events
-func (o *OpenPolls) PollClosedHandler(event voting.PollClosed) error {
-	log.Println("Info: OpenPolls: Handle Poll Closed")
-	rebuilt := make(chan error)
-	select {
-	case o.rebuild <- rebuilt:
-	case <-o.done:
-		close(rebuilt)
-	default:
-		close(rebuilt)
+		return ErrProcessing
 	}
 	return <-rebuilt
 }
@@ -133,7 +118,6 @@ func (o *OpenPolls) PollClosedHandler(event voting.PollClosed) error {
 // NewOpenPolls creates a new NewOpenPolls
 func NewOpenPolls(
 	eventStore eventstore.EventStore,
-	eventManager eventmanager.EventManager,
 ) (*OpenPolls, error) {
 	openPolls := new(OpenPolls)
 
@@ -141,7 +125,6 @@ func NewOpenPolls(
 	openPolls.close = make(chan struct{})
 	openPolls.done = make(chan struct{})
 
-	openPolls.wrapper = handlers.Subscribe(openPolls, eventManager)
 	openPolls.eventStore = eventStore
 
 	go openPolls.loop()
