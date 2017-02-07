@@ -11,21 +11,36 @@ import (
 	"github.com/ebittleman/voting/eventstore"
 )
 
+const tableName = "events"
+
 // New creates a json backed event store
 func New(conn *jsondb.Connection) (eventstore.EventStore, error) {
 	table := new(table)
-	if err := conn.RegisterTable("events", table); err != nil {
+	if err := conn.RegisterTable(tableName, table); err != nil {
 		return nil, err
 	}
 
 	store := new(store)
+	store.conn = conn
 	store.table = table
 
 	return store, nil
 }
 
 type store struct {
-	table jsondb.Table
+	conn  *jsondb.Connection
+	table *table
+}
+
+func (s *store) Refresh() error {
+	s.conn.UnregisterTable(tableName)
+	s.table.reset()
+
+	if err := s.conn.RegisterTable(tableName, s.table); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (s *store) QueryByEventType(eventType string) (eventstore.Events, error) {
@@ -135,4 +150,10 @@ func (t *table) Load(records chan json.RawMessage) error {
 	}
 
 	return nil
+}
+
+func (t *table) reset() {
+	t.Lock()
+	defer t.Unlock()
+	t.records = nil
 }

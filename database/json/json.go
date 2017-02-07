@@ -52,11 +52,14 @@ func Open(path string) (*Connection, error) {
 	connection.fileCreator = func(f string) (io.Writer, error) {
 		file, err := os.Create(f)
 		stat, _ := file.Stat()
-		log.Println("Debug: ", stat.Name())
+		log.Println("Debug: Create", stat.Name())
 		return file, err
 	}
 	connection.fileProvider = func(f string) (io.Reader, error) {
-		return os.Open(f)
+		file, err := os.Open(f)
+		stat, _ := file.Stat()
+		log.Println("Debug: Open", stat.Name())
+		return file, err
 	}
 
 	return connection, nil
@@ -70,6 +73,12 @@ func (c *Connection) SetFileProvider(fileCreator func(f string) (io.Reader, erro
 // SetFileCreator gives some customizability in how we save data
 func (c *Connection) SetFileCreator(fileCreator func(f string) (io.Writer, error)) {
 	c.fileCreator = fileCreator
+}
+
+// GetFileCreator returns the current function the connection calls to create a
+// new file.
+func (c *Connection) GetFileCreator() func(f string) (io.Writer, error) {
+	return c.fileCreator
 }
 
 // RegisterTable adds a table implementation the the database.
@@ -144,8 +153,14 @@ func (c *Connection) RegisterTable(name string, table Table) error {
 	return nil
 }
 
-// Close flushes write buffer to disk and closes the file.
-func (c *Connection) Close() error {
+func (c *Connection) UnregisterTable(name string) {
+	c.Lock()
+	defer c.Unlock()
+	delete(c.tables, name)
+}
+
+// Flush writes the tables to disk
+func (c *Connection) Flush() error {
 	c.Lock()
 	defer c.Unlock()
 	var (
@@ -182,4 +197,9 @@ func (c *Connection) Close() error {
 	}
 
 	return nil
+}
+
+// Close flushes write buffer to disk and closes the file.
+func (c *Connection) Close() error {
+	return c.Flush()
 }

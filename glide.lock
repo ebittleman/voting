@@ -1,6 +1,8 @@
-hash: d66a4cd128ac72e8dc6306ee92147963bc22662bfa7ab70b0fefee0a57bf88ff
-updated: 2017-02-06T19:01:52.1896125-05:00
+hash: 8ca7c53ffcae97ad181197048553c09d722259dd80ad0687d573c4ec3c0d153b
+updated: 2017-02-06T22:17:28.2304742-05:00
 imports:
+- name: github.com/iron-io/iron_go3
+  version: b50ecf8ff90187fc5fabccd9d028dd461adce4ee
 - name: github.com/satori/go.uuid
   version: b061729afc07e77a8aa4fad0a2fd840958f1942a
 testImports: []

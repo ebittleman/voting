@@ -1,3 +1,4 @@
 package: github.com/ebittleman/voting
 import:
 - package: github.com/satori/go.uuid
+- package: github.com/iron-io/iron_go3
