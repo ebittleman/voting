@@ -82,7 +82,7 @@ func (e *eventManager) loop() {
 			req.resp <- nil
 		case errCh := <-e.done:
 			e.Wait()
-			log.Println("All Events Processed")
+			log.Println("Debug: All Events Processed")
 			errCh <- nil
 			close(e.closed)
 			return
