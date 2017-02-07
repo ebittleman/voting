@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"sync"
 
 	jsondb "github.com/ebittleman/voting/database/json"
 )
@@ -19,6 +20,7 @@ type ViewRow struct {
 
 type table struct {
 	records map[string]ViewRow
+	sync.RWMutex
 }
 
 // NewTable registers a new jsondb table for placing vieViewRows into.
@@ -35,6 +37,8 @@ func NewTable(conn *jsondb.Connection) (jsondb.Table, error) {
 func (t *table) Scan() chan json.RawMessage {
 	records := make(chan json.RawMessage)
 	go func() {
+		t.RLock()
+		defer t.RUnlock()
 		defer close(records)
 		var (
 			record []byte
@@ -53,6 +57,9 @@ func (t *table) Scan() chan json.RawMessage {
 }
 
 func (t *table) Put(v interface{}) error {
+	t.Lock()
+	defer t.Unlock()
+
 	var (
 		row ViewRow
 		ok  bool
@@ -68,6 +75,9 @@ func (t *table) Put(v interface{}) error {
 }
 
 func (t *table) Load(records chan json.RawMessage) error {
+	t.Lock()
+	defer t.Unlock()
+
 	for record := range records {
 		row := new(ViewRow)
 		if err := json.Unmarshal(record, row); err != nil {

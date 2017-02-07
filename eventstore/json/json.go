@@ -26,12 +26,9 @@ func New(conn *jsondb.Connection) (eventstore.EventStore, error) {
 
 type store struct {
 	table jsondb.Table
-	sync.RWMutex
 }
 
 func (s *store) QueryByEventType(eventType string) (eventstore.Events, error) {
-	s.RLock()
-	defer s.RUnlock()
 	var events eventstore.Events
 
 	for records := range s.table.Scan() {
@@ -53,8 +50,6 @@ func (s *store) QueryByEventType(eventType string) (eventstore.Events, error) {
 }
 
 func (s *store) Query(id string) (eventstore.Events, error) {
-	s.RLock()
-	defer s.RUnlock()
 	var events eventstore.Events
 
 	for records := range s.table.Scan() {
@@ -85,8 +80,6 @@ func (s *store) Put(id string, version int64, event eventstore.Event) error {
 		return err
 	}
 
-	s.Lock()
-	defer s.Unlock()
 	if num := len(events); num > 0 &&
 		(events[num-1].Version != version || event.Version < version) {
 		return fmt.Errorf("Conflict Error")
@@ -97,12 +90,15 @@ func (s *store) Put(id string, version int64, event eventstore.Event) error {
 
 type table struct {
 	records []json.RawMessage
+	sync.RWMutex
 }
 
 func (t *table) Scan() chan json.RawMessage {
 
 	records := make(chan json.RawMessage)
 	go func() {
+		t.RLock()
+		defer t.RUnlock()
 		for _, record := range t.records {
 			records <- record
 		}
@@ -113,6 +109,9 @@ func (t *table) Scan() chan json.RawMessage {
 }
 
 func (t *table) Put(v interface{}) error {
+	t.Lock()
+	defer t.Unlock()
+
 	var (
 		record []byte
 		err    error
@@ -128,6 +127,9 @@ func (t *table) Put(v interface{}) error {
 }
 
 func (t *table) Load(records chan json.RawMessage) error {
+	t.Lock()
+	defer t.Unlock()
+
 	for record := range records {
 		t.records = append(t.records, record)
 	}
