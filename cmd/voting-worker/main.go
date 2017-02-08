@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"io"
 	"log"
-	"os"
 	"strings"
 	"time"
 
@@ -23,61 +22,146 @@ import (
 )
 
 func main() {
-	if code := run(); code != 0 {
-		os.Exit(code)
+	var c components
+	defer c.Close()
+
+	c.ironQueueName = "dev-queue"
+	c.jsonDir = "./.data"
+
+	d, err := c.Dispatcher()
+	if err != nil {
+		log.Fatalln("Fatal: ", err)
+		return
+	}
+
+	if err = <-d.Run(); err != nil {
+		log.Fatalln("Fatal: ", err)
+		return
 	}
 }
 
-func run() int {
-	// get a directory to put our json files in
-	conn, err := jsondb.Open("./.data")
-	if err != nil {
-		log.Println("Fatal: ", err)
-		return 1
+type components struct {
+	jsonDir       string
+	ironQueueName string
+
+	conn             *jsondb.Connection
+	dispatcher       dispatcher.Runnable
+	eventManager     eventmanager.EventManager
+	eventStore       eventstore.EventStore
+	filters          []dispatcher.Filter
+	mq               bus.MessageQueue
+	viewsTable       jsondb.Table
+	openPollsView    *votingViews.OpenPolls
+	openPollsHandler *handlers.OpenPolls
+
+	closers []io.Closer
+}
+
+func (c *components) Close() error {
+	for _, closer := range c.closers {
+		closer.Close()
 	}
-	defer conn.Close()
+
+	return nil
+}
+
+func (c *components) Connection() (*jsondb.Connection, error) {
+	if c.conn != nil {
+		return c.conn, nil
+	}
+
+	conn, err := jsondb.Open(c.jsonDir)
+	if err != nil {
+		return nil, err
+	}
 	setEventsReadOnly(conn)
 
-	// creates an event store that will write to event.json when it closes
-	eventStore, err := json.New(conn)
-	if err != nil {
-		log.Println("Fatal: ", err)
-		return 1
+	c.closers = append(c.closers, conn)
+	c.conn = conn
+
+	// write the views file to disk every couple of seconds
+	go func() {
+		for {
+			select {
+			case <-time.After(2 * time.Second):
+				if flushErr := conn.Flush(); flushErr != nil {
+					log.Println("Error: Couldn't write db to disk: ", flushErr)
+					return
+				}
+			}
+			log.Println("Info: wrote db to disk.")
+		}
+	}()
+
+	return c.conn, nil
+}
+
+func (c *components) Dispatcher() (dispatcher.Runnable, error) {
+	if c.dispatcher != nil {
+		return c.dispatcher, nil
 	}
 
-	// creates a simple json table for store view data
-	viewsTable, err := views.NewTable(conn)
-	if err != nil {
-		log.Println("Fatal: ", err)
-		return 1
+	if _, err := c.OpenPollsHandler(); err != nil {
+		return nil, err
 	}
 
-	// processes the current event store and builds a view of all "Open" polls
-	openPollsView, err := votingViews.NewOpenPolls(eventStore)
+	filters, err := c.Filters()
 	if err != nil {
-		log.Println("Fatal: ", err)
-		return 1
+		return nil, err
 	}
-	defer openPollsView.Close()
 
-	// component that routes events in the local process
-	eventManager := eventmanager.New()
-	defer eventManager.Close()
+	c.dispatcher = dispatcher.NewBusDispatcher(
+		c.MQ(),
+		c.EventManager(),
+		filters...,
+	)
 
-	// listens for PollOpened and PollClosed events, triggers the openPollsView
-	// to rebuild, then saves it to the viewsTable
-	openPollsHandler := handlers.NewOpenPolls(openPollsView, viewsTable, eventManager)
-	defer openPollsHandler.Close()
+	c.closers = append(c.closers, c.dispatcher)
 
-	// get a message queue to retrieve messages from.
-	mq := ironmq.New("dev-queue")
+	return c.dispatcher, nil
+}
 
-	// update the view table with the latest data from the view.
-	refreshViewTable(openPollsHandler)
+func (c *components) EventManager() eventmanager.EventManager {
+	if c.eventManager != nil {
+		return c.eventManager
+	}
 
-	d := dispatcher.NewBusDispatcher(
-		mq,
-		eventManager,
+	c.eventManager = eventmanager.New()
+	c.closers = append(c.closers, c.eventManager)
+
+	return c.eventManager
+}
+
+func (c *components) EventStore() (eventstore.EventStore, error) {
+	if c.eventStore != nil {
+		return c.eventStore, nil
+	}
+
+	conn, err := c.Connection()
+	if err != nil {
+		return nil, err
+	}
+
+	store, err := json.New(conn)
+	if err != nil {
+		return nil, err
+	}
+	c.eventStore = store
+
+	return c.eventStore, nil
+}
+
+func (c *components) Filters() ([]dispatcher.Filter, error) {
+	if c.filters != nil {
+		return c.filters, nil
+	}
+
+	eventStore, err := c.EventStore()
+	if err != nil {
+		return nil, err
+	}
+
+	c.filters = []dispatcher.Filter{
 		eventTypeFilter{
 			AllowedEventTypes: []string{
 				"PollOpened",
@@ -87,29 +171,83 @@ func run() int {
 		&refreshFilter{
 			EventStore: eventStore,
 		},
-	)
-
-	// write the views file to disk every couple of seconds
-	go func() {
-		for {
-			select {
-			case <-time.After(2 * time.Second):
-				if flushErr := conn.Flush(); flushErr != nil {
-					log.Println("Error: Couldn't write db to disk: ", flushErr)
-					d.Close()
-					return
-				}
-			}
-			log.Println("Info: wrote db to disk.")
-		}
-	}()
-
-	if err = <-d.Run(); err != nil {
-		log.Println("Fatal: ", err)
-		return 1
 	}
 
-	return 0
+	return c.filters, nil
+}
+
+func (c *components) MQ() bus.MessageQueue {
+	if c.mq != nil {
+		return c.mq
+	}
+
+	c.mq = ironmq.New(c.ironQueueName)
+
+	return c.mq
+}
+
+func (c *components) ViewsTable() (jsondb.Table, error) {
+	if c.viewsTable != nil {
+		return c.viewsTable, nil
+	}
+
+	conn, err := c.Connection()
+	if err != nil {
+		return nil, err
+	}
+
+	viewsTable, err := views.NewTable(conn)
+	if err != nil {
+		return nil, err
+	}
+	c.viewsTable = viewsTable
+
+	return viewsTable, nil
+}
+
+func (c *components) OpenPollsView() (*votingViews.OpenPolls, error) {
+	if c.openPollsView != nil {
+		return c.openPollsView, nil
+	}
+
+	eventStore, err := c.EventStore()
+	if err != nil {
+		return nil, err
+	}
+
+	openPollsView, err := votingViews.NewOpenPolls(eventStore)
+	if err != nil {
+		return nil, err
+	}
+	c.openPollsView = openPollsView
+	c.closers = append(c.closers, c.openPollsView)
+
+	return c.openPollsView, nil
+}
+
+func (c *components) OpenPollsHandler() (*handlers.OpenPolls, error) {
+	if c.openPollsHandler != nil {
+		return c.openPollsHandler, nil
+	}
+
+	openPollsView, err := c.OpenPollsView()
+	if err != nil {
+		return nil, err
+	}
+
+	viewsTable, err := c.ViewsTable()
+	if err != nil {
+		return nil, err
+	}
+
+	eventManager := c.EventManager()
+
+	c.openPollsHandler = handlers.NewOpenPolls(openPollsView, viewsTable, eventManager)
+	c.closers = append(c.closers, c.openPollsHandler)
+
+	refreshViewTable(c.openPollsHandler)
+
+	return c.openPollsHandler, nil
 }
 
 type refreshFilter struct {
