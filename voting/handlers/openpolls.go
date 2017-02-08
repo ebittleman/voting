@@ -3,7 +3,6 @@ package handlers
 import (
 	"encoding/json"
 
-	jsondb "github.com/ebittleman/voting/database/json"
 	"github.com/ebittleman/voting/eventmanager"
 	"github.com/ebittleman/voting/views"
 	"github.com/ebittleman/voting/voting"
@@ -13,21 +12,21 @@ import (
 // OpenPolls handles PollOpenedEvents and writes them to the read model's
 // persitance layer
 type OpenPolls struct {
-	view    *votingViews.OpenPolls
-	table   jsondb.Table
-	wrapper EventWrapper
+	view      *votingViews.OpenPolls
+	viewStore views.ViewStore
+	wrapper   EventWrapper
 }
 
 // NewOpenPolls creates a new NewOpenPolls
 func NewOpenPolls(
 	view *votingViews.OpenPolls,
-	table jsondb.Table,
+	viewStore views.ViewStore,
 	eventManager eventmanager.EventManager,
 ) *OpenPolls {
 	openPolls := new(OpenPolls)
 
 	openPolls.view = view
-	openPolls.table = table
+	openPolls.viewStore = viewStore
 	openPolls.wrapper = Subscribe(openPolls, eventManager)
 
 	return openPolls
@@ -81,5 +80,5 @@ func (o *OpenPolls) save() error {
 		Data: &msg,
 	}
 
-	return o.table.Put(row)
+	return o.viewStore.Put(row)
 }

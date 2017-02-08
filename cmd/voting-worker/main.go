@@ -16,6 +16,7 @@ import (
 	"github.com/ebittleman/voting/eventmanager"
 	"github.com/ebittleman/voting/eventstore/json"
 	"github.com/ebittleman/voting/views"
+	jsonViews "github.com/ebittleman/voting/views/json"
 	"github.com/ebittleman/voting/voting"
 	"github.com/ebittleman/voting/voting/handlers"
 	votingViews "github.com/ebittleman/voting/voting/views"
@@ -50,9 +51,9 @@ type components struct {
 	eventStore       eventstore.EventStore
 	filters          []dispatcher.Filter
 	mq               bus.MessageQueue
-	viewsTable       jsondb.Table
 	openPollsView    *votingViews.OpenPolls
 	openPollsHandler *handlers.OpenPolls
+	viewStore        views.ViewStore
 
 	closers []io.Closer
 }
@@ -186,25 +187,6 @@ func (c *components) MQ() bus.MessageQueue {
 	return c.mq
 }
 
-func (c *components) ViewsTable() (jsondb.Table, error) {
-	if c.viewsTable != nil {
-		return c.viewsTable, nil
-	}
-
-	conn, err := c.Connection()
-	if err != nil {
-		return nil, err
-	}
-
-	viewsTable, err := views.NewTable(conn)
-	if err != nil {
-		return nil, err
-	}
-	c.viewsTable = viewsTable
-
-	return viewsTable, nil
-}
-
 func (c *components) OpenPollsView() (*votingViews.OpenPolls, error) {
 	if c.openPollsView != nil {
 		return c.openPollsView, nil
@@ -235,19 +217,38 @@ func (c *components) OpenPollsHandler() (*handlers.OpenPolls, error) {
 		return nil, err
 	}
 
-	viewsTable, err := c.ViewsTable()
+	viewStore, err := c.ViewStore()
 	if err != nil {
 		return nil, err
 	}
 
 	eventManager := c.EventManager()
 
-	c.openPollsHandler = handlers.NewOpenPolls(openPollsView, viewsTable, eventManager)
+	c.openPollsHandler = handlers.NewOpenPolls(openPollsView, viewStore, eventManager)
 	c.closers = append(c.closers, c.openPollsHandler)
 
 	refreshViewTable(c.openPollsHandler)
 
 	return c.openPollsHandler, nil
+}
+
+func (c *components) ViewStore() (views.ViewStore, error) {
+	if c.viewStore != nil {
+		return c.viewStore, nil
+	}
+
+	conn, err := c.Connection()
+	if err != nil {
+		return nil, err
+	}
+
+	viewStore, err := jsonViews.NewStore(conn)
+	if err != nil {
+		return nil, err
+	}
+	c.viewStore = viewStore
+
+	return viewStore, nil
 }
 
 type refreshFilter struct {
