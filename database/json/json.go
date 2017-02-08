@@ -57,8 +57,9 @@ func Open(path string) (*Connection, error) {
 	}
 	connection.fileProvider = func(f string) (io.Reader, error) {
 		file, err := os.Open(f)
-		stat, _ := file.Stat()
-		log.Println("Debug: Open", stat.Name())
+		if stat, _ := file.Stat(); stat != nil {
+			log.Println("Debug: Open", stat.Name())
+		}
 		return file, err
 	}
 

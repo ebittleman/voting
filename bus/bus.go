@@ -7,7 +7,7 @@ import (
 )
 
 // Header simple dictionary of string keys string values for housing message
-// meta0data
+// meta-data
 type Header map[string]string
 
 // Envelope wraps a before sending it across the wire

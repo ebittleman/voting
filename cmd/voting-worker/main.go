@@ -8,8 +8,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ebittleman/voting/eventstore"
+
+	"github.com/ebittleman/voting/bus"
 	"github.com/ebittleman/voting/bus/ironmq"
 	jsondb "github.com/ebittleman/voting/database/json"
+	"github.com/ebittleman/voting/dispatcher"
 	"github.com/ebittleman/voting/eventmanager"
 	"github.com/ebittleman/voting/eventstore/json"
 	"github.com/ebittleman/voting/views"
@@ -65,57 +69,69 @@ func run() int {
 	openPollsHandler := handlers.NewOpenPolls(openPollsView, viewsTable, eventManager)
 	defer openPollsHandler.Close()
 
+	// get a message queue to retrieve messages from.
+	mq := ironmq.New("dev-queue")
+
 	// update the view table with the latest data from the view.
 	refreshViewTable(openPollsHandler)
+
+	d := dispatcher.NewBusDispatcher(
+		mq,
+		eventManager,
+		eventTypeFilter{
+			AllowedEventTypes: []string{
+				"PollOpened",
+				"PollClosed",
+			},
+		},
+		&refreshFilter{
+			EventStore: eventStore,
+		},
+	)
 
 	// write the views file to disk every couple of seconds
 	go func() {
 		for {
 			select {
 			case <-time.After(2 * time.Second):
-				err := conn.Flush()
-				if err != nil {
-					panic(err)
+				if flushErr := conn.Flush(); flushErr != nil {
+					log.Println("Error: Couldn't write db to disk: ", flushErr)
+					d.Close()
+					return
 				}
 			}
 			log.Println("Info: wrote db to disk.")
 		}
 	}()
 
-	// get a message queue to retrieve messages from.
-	bus := ironmq.New("dev-queue")
-	for {
-		// long poll on getting a message
-		msg, err := bus.Receive()
-		if err != nil {
-			log.Println("Fatal: Receive: ", err)
-			return 1
-		}
+	if err = <-d.Run(); err != nil {
+		log.Println("Fatal: ", err)
+		return 1
+	}
 
-		// if it isn't the type of message we want sent it back to the queue
-		if msg.Event().Type != "PollOpened" && msg.Event().Type != "PollClosed" {
-			if err = bus.Nack(msg); err != nil {
-				log.Println("Fatal: Nack: ", err)
-				return 1
-			}
-			continue
-		}
+	return 0
+}
 
-		// ensure the event store has the latest data from disk.
-		if err = eventStore.Refresh(); err != nil {
-			log.Println("Fatal: Receive: ", err)
-			return 1
-		}
+type refreshFilter struct {
+	EventStore eventstore.EventStore
+}
 
-		// publish the event to the local event manager
-		eventManager.Publish(msg.Event())
+func (r *refreshFilter) Filter(msg bus.Message) error {
+	return r.EventStore.Refresh()
+}
 
-		// once the work has been started, ack message to the message queue.
-		if err = bus.Ack(msg); err != nil {
-			log.Println("Fatal: Ack ", err)
-			return 1
+type eventTypeFilter struct {
+	AllowedEventTypes []string
+}
+
+func (e eventTypeFilter) Filter(msg bus.Message) error {
+	for _, eventType := range e.AllowedEventTypes {
+		if eventType == msg.Event().Type {
+			return nil
 		}
 	}
+
+	return dispatcher.ErrNack
 }
 
 func refreshViewTable(handler handlers.PollOpenedHandler) {

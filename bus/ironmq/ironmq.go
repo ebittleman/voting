@@ -3,7 +3,6 @@ package ironmq
 import (
 	"encoding/json"
 	"errors"
-	"log"
 
 	"github.com/ebittleman/voting/bus"
 	"github.com/ebittleman/voting/eventstore"
@@ -55,11 +54,12 @@ func (m *messageQueue) Receive() (bus.Message, error) {
 	)
 
 	mqMsgs, err = m.queue.LongPoll(1, 60, 30, false)
-	for ; len(mqMsgs) < 1 && err == nil; mqMsgs, err = m.queue.LongPoll(1, 60, 30, false) {
-		log.Println("Info: Didn't receive any messages trying again.")
-	}
 	if err != nil {
 		return nil, err
+	}
+
+	if len(mqMsgs) < 1 {
+		return nil, nil
 	}
 
 	mqMsg := mqMsgs[0]
