@@ -1,40 +1,16 @@
 package dispatcher
 
 import (
-	"errors"
-	"io"
 	"log"
 
 	"github.com/ebittleman/voting/bus"
 	"github.com/ebittleman/voting/eventmanager"
 )
 
-var (
-	// ErrNack returned by a filter if the message should not be handled and
-	// returned back to the queue
-	ErrNack = errors.New("Message filtered and not handled")
-	// ErrAck returned by a filter if a message won't be handled and if it should
-	// not be returned back to the queue. An example of this would be for a
-	// message that fails authentication.
-	ErrAck = errors.New("Message filtered, but was handled")
-)
-
-// Filter message preprocessor.
-type Filter interface {
-	Filter(msg bus.Message) error
-}
-
-// Runnable components have concurrent main loops that can be canceled by
-// the Close method and can be block by receiving on Run's returned error
-// channel
-type Runnable interface {
-	Run() chan error
-	io.Closer
-}
-
 type busDispatcher struct {
 	mq           bus.MessageQueue
 	eventManager eventmanager.EventManager
+	subscribers  []eventmanager.Subscriber
 	filters      []Filter
 
 	errCh  chan error
@@ -61,11 +37,20 @@ func NewBusDispatcher(
 	return d
 }
 
-func (d *busDispatcher) Run() chan error {
+func (d *busDispatcher) Run(subscribers ...eventmanager.Subscriber) error {
+	return <-d.RunAsync(subscribers...)
+}
+
+func (d *busDispatcher) RunAsync(subscribers ...eventmanager.Subscriber) chan error {
 	select {
 	case <-d.closed:
 		return d.errCh
 	default:
+	}
+
+	d.subscribers = subscribers
+	for _, subscriber := range d.subscribers {
+		subscriber.Subscribe(d.eventManager)
 	}
 
 	go d.loop()

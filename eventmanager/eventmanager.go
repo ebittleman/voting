@@ -21,6 +21,11 @@ type EventManager interface {
 	Unsubscribe(v Subscription) error
 	io.Closer
 }
+type Subscriber interface {
+	Subscribe(EventManager)
+	io.Closer
+}
+
 type subscription struct {
 	eventType string
 	handler   EventHandler

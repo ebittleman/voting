@@ -1,5 +1,13 @@
 package voting
 
+var EventTypes = []string{
+	"PollCreated",
+	"PollOpened",
+	"PollClosed",
+	"IssueAppended",
+	"BallotCast",
+}
+
 // PollCreated metadata for PollCreated event
 type PollCreated struct {
 	ID string `json:"id"`

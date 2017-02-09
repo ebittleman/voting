@@ -1,33 +1,36 @@
-package handlers
+package bus
 
 import (
-	"io"
-
-	"github.com/ebittleman/voting/bus"
 	"github.com/ebittleman/voting/eventmanager"
 	"github.com/ebittleman/voting/eventstore"
 )
 
 type fowarder struct {
-	bus          bus.MessageQueue
+	bus          MessageQueue
 	subs         []eventmanager.Subscription
 	eventManager eventmanager.EventManager
+	eventTypes   []string
 }
 
 // NewFowarder fowards all voting events to a message queue.
 func NewFowarder(
-	bus bus.MessageQueue,
-	eventManager eventmanager.EventManager,
-) io.Closer {
+	bus MessageQueue,
+	eventTypes []string,
+) eventmanager.Subscriber {
 	f := new(fowarder)
 	f.bus = bus
-	f.eventManager = eventManager
-
-	for _, eventType := range eventTypes {
-		f.subs = append(f.subs, eventManager.Subscribe(eventType, f.EventHandler))
-	}
+	f.eventTypes = eventTypes
 
 	return f
+}
+
+// Subscribe binds to an event manager
+func (f *fowarder) Subscribe(eventManager eventmanager.EventManager) {
+	f.eventManager = eventManager
+
+	for _, eventType := range f.eventTypes {
+		f.subs = append(f.subs, eventManager.Subscribe(eventType, f.EventHandler))
+	}
 }
 
 // EventHandler routes events from events published by an event manager

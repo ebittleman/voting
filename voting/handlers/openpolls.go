@@ -21,15 +21,33 @@ type OpenPolls struct {
 func NewOpenPolls(
 	view *votingViews.OpenPolls,
 	viewStore views.ViewStore,
-	eventManager eventmanager.EventManager,
 ) *OpenPolls {
 	openPolls := new(OpenPolls)
 
 	openPolls.view = view
 	openPolls.viewStore = viewStore
-	openPolls.wrapper = Subscribe(openPolls, eventManager)
 
 	return openPolls
+}
+
+// Subscribe binds to an event manager
+func (o *OpenPolls) Subscribe(eventManager eventmanager.EventManager) {
+	o.wrapper = Subscribe(o, eventManager)
+}
+
+// Close implements io.Closer, unsubscribes from EventManager and shuts down
+// goroutine.
+func (o *OpenPolls) Close() error {
+
+	if o.wrapper == nil {
+		return nil
+	}
+
+	if err := o.wrapper.Close(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // PollOpenedHandler handles PollOpened events
@@ -40,17 +58,6 @@ func (o *OpenPolls) PollOpenedHandler(event voting.PollOpened) error {
 // PollClosedHandler handles PollClosed events
 func (o *OpenPolls) PollClosedHandler(event voting.PollClosed) error {
 	return o.process()
-}
-
-// Close implements io.Closer, unsubscribes from EventManager and shuts down
-// goroutine.
-func (o *OpenPolls) Close() error {
-
-	if err := o.wrapper.Close(); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func (o *OpenPolls) process() error {

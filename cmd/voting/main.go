@@ -4,12 +4,13 @@ import (
 	"log"
 	"os"
 
+	"github.com/ebittleman/voting/bus"
 	"github.com/ebittleman/voting/bus/ironmq"
 	jsondb "github.com/ebittleman/voting/database/json"
 	"github.com/ebittleman/voting/eventmanager"
 	"github.com/ebittleman/voting/eventstore/json"
+	"github.com/ebittleman/voting/voting"
 	"github.com/ebittleman/voting/voting/commands"
-	"github.com/ebittleman/voting/voting/handlers"
 	"github.com/ebittleman/voting/voting/model"
 	uuid "github.com/satori/go.uuid"
 )
@@ -36,34 +37,15 @@ func run() int {
 		return 1
 	}
 
-	// creates a simple json table for store view data
-	// viewsTable, err := views.NewTable(conn)
-	// if err != nil {
-	// 	log.Println("Fatal: ", err)
-	// 	return 1
-	// }
-
-	// processes the current event store and builds a view of all "Open" polls
-	// openPollsView, err := votingViews.NewOpenPolls(eventStore)
-	// if err != nil {
-	// 	log.Println("Fatal: ", err)
-	// 	return 1
-	// }
-	// defer openPollsView.Close()
-
 	// component that routes events in the local process
 	eventManager := eventmanager.New()
 	defer eventManager.Close()
 
-	// // listens for PollOpened and PollClosed events, triggers the openPollsView
-	// // to rebuild, then saves it to the viewsTable
-	// openPollsHandler := handlers.NewOpenPolls(openPollsView, viewsTable, eventManager)
-	// defer openPollsHandler.Close()
-
 	// Forward all events to a message queue
-	bus := ironmq.New("dev-queue")
-	forwarder := handlers.NewFowarder(bus, eventManager)
+	mq := ironmq.New("dev-queue")
+	forwarder := bus.NewFowarder(mq, voting.EventTypes)
 	defer forwarder.Close()
+	forwarder.Subscribe(eventManager)
 
 	// generate a new poll id
 	id := uuid.NewV4().String()

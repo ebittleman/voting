@@ -10,21 +10,13 @@ import (
 	"github.com/ebittleman/voting/voting"
 )
 
-var eventTypes = []string{
-	"PollCreated",
-	"PollOpened",
-	"PollClosed",
-	"IssueAppended",
-	"BallotCast",
-}
-
 // Subscribe registers all default handlers to an event manager
 func Subscribe(handler interface{}, em eventmanager.EventManager) EventWrapper {
 	wrapper := new(eventWrapper)
 	wrapper.eventManager = em
 	wrapper.handler = handler
 
-	for _, eventType := range eventTypes {
+	for _, eventType := range voting.EventTypes {
 		wrapper.subs = append(
 			wrapper.subs,
 			em.Subscribe(eventType, wrapper.EventHandler),
