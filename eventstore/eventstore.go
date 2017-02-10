@@ -21,7 +21,11 @@ func (e Events) Swap(i, j int) {
 	e[i], e[j] = e[j], e[i]
 }
 func (e Events) Less(i, j int) bool {
-	return e[i].ID < e[j].ID && e[i].Version < e[j].Version
+	if e[i].ID == e[j].ID {
+		return e[i].Version < e[j].Version
+	}
+
+	return e[i].ID < e[j].ID
 }
 
 // EventStore component that manages system events.

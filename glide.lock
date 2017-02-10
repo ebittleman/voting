@@ -1,8 +1,14 @@
-hash: 8ca7c53ffcae97ad181197048553c09d722259dd80ad0687d573c4ec3c0d153b
-updated: 2017-02-06T22:17:28.2304742-05:00
+hash: 30709be87532fb64e899cc4b215cb91d899ce76982c45840be31cf972c48690e
+updated: 2017-02-09T22:05:42.6512308-05:00
 imports:
+- name: github.com/fjl/go-couchdb
+  version: 1f327c218d24c98ba4067e086a2787c1488ba558
 - name: github.com/iron-io/iron_go3
   version: b50ecf8ff90187fc5fabccd9d028dd461adce4ee
+  subpackages:
+  - mq
+  - api
+  - config
 - name: github.com/satori/go.uuid
   version: b061729afc07e77a8aa4fad0a2fd840958f1942a
 testImports: []
