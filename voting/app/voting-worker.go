@@ -1,25 +1,23 @@
 package app
 
 import (
-	"bytes"
 	"io"
-	"log"
-	"strings"
-	"time"
+	"net/http"
+	"os"
 
 	"github.com/ebittleman/voting/bus"
 	"github.com/ebittleman/voting/bus/ironmq"
-	jsondb "github.com/ebittleman/voting/database/json"
 	"github.com/ebittleman/voting/dispatcher"
 	"github.com/ebittleman/voting/dispatcher/filters"
 	"github.com/ebittleman/voting/eventmanager"
 	"github.com/ebittleman/voting/eventstore"
-	"github.com/ebittleman/voting/eventstore/json"
+	couchdbEventStore "github.com/ebittleman/voting/eventstore/couchdb"
 	"github.com/ebittleman/voting/views"
-	jsonViews "github.com/ebittleman/voting/views/json"
+	couchdbViews "github.com/ebittleman/voting/views/couchdb"
 	"github.com/ebittleman/voting/voting"
 	"github.com/ebittleman/voting/voting/handlers"
 	votingViews "github.com/ebittleman/voting/voting/views"
+	couchdb "github.com/fjl/go-couchdb"
 )
 
 // VotingWorkerConfig of a voting-working application
@@ -32,7 +30,8 @@ type votingWorker struct {
 	jsonDir       string
 	ironQueueName string
 
-	conn             *jsondb.Connection
+	client *couchdb.Client
+	// conn             *jsondb.Connection
 	dispatcher       dispatcher.Runnable
 	eventManager     eventmanager.EventManager
 	eventStore       eventstore.EventStore
@@ -126,44 +125,60 @@ func (c *votingWorker) Dispatcher() (dispatcher.Runnable, error) {
 	return c.dispatcher, nil
 }
 
-func (c *votingWorker) Connection() (*jsondb.Connection, error) {
-	if c.conn != nil {
-		return c.conn, nil
+func (c *votingWorker) Client() (*couchdb.Client, error) {
+	if c.client != nil {
+		return c.client, nil
 	}
 
-	conn, err := jsondb.Open(c.jsonDir)
+	url := os.Getenv("COUCHDB_URL")
+	client, err := couchdb.NewClient(url, http.DefaultTransport)
 	if err != nil {
 		return nil, err
 	}
-	// setEventsReadOnly dirty little trick to skip writing the events file.
-	fileCreator := conn.GetFileCreator()
-	conn.SetFileCreator(func(f string) (io.Writer, error) {
-		if !strings.Contains(f, "events") {
-			return fileCreator(f)
-		}
 
-		return &bytes.Buffer{}, nil
-	})
+	c.client = client
 
-	c.closers = append(c.closers, conn)
-	c.conn = conn
-
-	// write the views file to disk every couple of seconds
-	go func() {
-		for {
-			select {
-			case <-time.After(2 * time.Second):
-				if flushErr := conn.Flush(); flushErr != nil {
-					log.Println("Error: Couldn't write db to disk: ", flushErr)
-					return
-				}
-			}
-			log.Println("Info: wrote db to disk.")
-		}
-	}()
-
-	return c.conn, nil
+	return c.client, nil
 }
+
+// func (c *votingWorker) Connection() (*jsondb.Connection, error) {
+// 	if c.conn != nil {
+// 		return c.conn, nil
+// 	}
+//
+// 	conn, err := jsondb.Open(c.jsonDir)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	// setEventsReadOnly dirty little trick to skip writing the events file.
+// 	fileCreator := conn.GetFileCreator()
+// 	conn.SetFileCreator(func(f string) (io.Writer, error) {
+// 		if !strings.Contains(f, "events") {
+// 			return fileCreator(f)
+// 		}
+//
+// 		return &bytes.Buffer{}, nil
+// 	})
+//
+// 	c.closers = append(c.closers, conn)
+// 	c.conn = conn
+//
+// 	// write the views file to disk every couple of seconds
+// 	go func() {
+// 		for {
+// 			select {
+// 			case <-time.After(2 * time.Second):
+// 				if flushErr := conn.Flush(); flushErr != nil {
+// 					log.Println("Error: Couldn't write db to disk: ", flushErr)
+// 					return
+// 				}
+// 			}
+// 			log.Println("Info: wrote db to disk.")
+// 		}
+// 	}()
+//
+// 	return c.conn, nil
+// }
 
 func (c *votingWorker) EventManager() eventmanager.EventManager {
 	if c.eventManager != nil {
@@ -181,12 +196,14 @@ func (c *votingWorker) EventStore() (eventstore.EventStore, error) {
 		return c.eventStore, nil
 	}
 
-	conn, err := c.Connection()
+	// conn, err := c.Connection()
+	client, err := c.Client()
 	if err != nil {
 		return nil, err
 	}
 
-	store, err := json.New(conn)
+	// store, err := json.New(conn)
+	store, err := couchdbEventStore.New(client)
 	if err != nil {
 		return nil, err
 	}
@@ -254,12 +271,14 @@ func (c *votingWorker) ViewStore() (views.ViewStore, error) {
 		return c.viewStore, nil
 	}
 
-	conn, err := c.Connection()
+	// conn, err := c.Connection()
+	client, err := c.Client()
 	if err != nil {
 		return nil, err
 	}
 
-	viewStore, err := jsonViews.NewStore(conn)
+	// viewStore, err := jsonViews.NewStore(conn)
+	viewStore, err := couchdbViews.NewStore(client)
 	if err != nil {
 		return nil, err
 	}

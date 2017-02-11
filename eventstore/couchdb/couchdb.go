@@ -1,6 +1,7 @@
 package couchdb
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 
@@ -8,7 +9,7 @@ import (
 	couchdb "github.com/fjl/go-couchdb"
 )
 
-const dbName = "voting-1486696777"
+const dbName = "events"
 
 var emptyObject = map[string]interface{}{}
 
@@ -86,8 +87,22 @@ func (s *store) Query(id string) (eventstore.Events, error) {
 }
 
 func (s *store) Put(id string, version int64, event eventstore.Event) error {
+	if event.Version == version {
+		return errors.New("Conflict Error")
+	}
+
+	events, err := s.Query(id)
+	if err != nil {
+		return err
+	}
+
+	if num := len(events); num > 0 &&
+		(events[num-1].Version != version || event.Version < version) {
+		return fmt.Errorf("Conflict Error")
+	}
+
 	docID := fmt.Sprintf("%s-%d", id, event.Version)
-	_, err := s.db.Put(docID, event, "")
+	_, err = s.db.Put(docID, event, "")
 	return err
 }
 

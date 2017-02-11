@@ -23,20 +23,6 @@ func main() {
 }
 
 func run() int {
-	// // get a directory to put our json files in
-	// conn, err := jsondb.Open("./.data")
-	// if err != nil {
-	// 	log.Println("Fatal: ", err)
-	// 	return 1
-	// }
-	// defer conn.Close()
-	//
-	// // creates an event store that will write to event.json when it closes
-	// eventStore, err := json.New(conn)
-	// if err != nil {
-	// 	log.Println("Fatal: ", err)
-	// 	return 1
-	// }
 
 	url := os.Getenv("COUCHDB_URL")
 	client, err := couchdb.NewClient(url, http.DefaultTransport)

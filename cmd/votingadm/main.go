@@ -1,20 +1,23 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"time"
 
-	"github.com/ebittleman/voting/eventstore"
 	couchdb "github.com/fjl/go-couchdb"
 )
 
 func main() {
-	name := "voting-1486696777"
+	name := "events"
 	client, err := client()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	_, err = client.EnsureDB("views")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -27,22 +30,6 @@ func main() {
 	if err = installView(db); err != nil {
 		log.Println(err)
 	}
-
-	raw := json.RawMessage(`{"name": "dinner poll"}`)
-	event := eventstore.Event{
-		ID:        "myEvent",
-		Version:   2,
-		Type:      "PollOpened",
-		Data:      &raw,
-		Timestamp: time.Now().UTC().Unix(),
-	}
-	if _, err = db.Put(
-		fmt.Sprintf("%s-%d", event.ID, event.Version),
-		&event, "",
-	); err != nil {
-		log.Fatal(err)
-	}
-
 }
 
 func client() (*couchdb.Client, error) {
