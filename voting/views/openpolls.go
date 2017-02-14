@@ -142,7 +142,7 @@ func NewOpenPolls(
 ) (*OpenPolls, error) {
 	openPolls := new(OpenPolls)
 
-	openPolls.rebuild = make(chan chan error)
+	openPolls.rebuild = make(chan chan error, 1)
 	openPolls.close = make(chan struct{})
 	openPolls.done = make(chan struct{})
 

@@ -9,9 +9,32 @@ import (
 	couchdb "github.com/fjl/go-couchdb"
 )
 
-const dbName = "events"
+const (
+	dbName   = "events"
+	pageSize = 250
+)
 
 var emptyObject = map[string]interface{}{}
+
+type row struct {
+	ID  string            `json:"id"`
+	Key []interface{}     `json:"key"`
+	Doc *eventstore.Event `json:"doc,omitempty"`
+}
+
+type viewPage struct {
+	TotalRows int   `json:"total_rows"`
+	Offset    int   `json:"offset"`
+	Rows      []row `json:"rows"`
+}
+
+type paginateViewInput struct {
+	DesignDoc string
+	View      string
+	Options   couchdb.Options
+}
+
+type paginateViewCallback func(*viewPage, bool) bool
 
 // New initializes a new couchdb backed eventstore
 func New(client *couchdb.Client) (eventstore.EventStore, error) {
@@ -35,51 +58,67 @@ func (s *store) Refresh() error {
 	return nil
 }
 
-func (s *store) QueryByEventType(eventType string) (eventstore.Events, error) {
-	var events eventstore.Events
-	page := new(viewPage)
-	if err := s.db.View("_design/indexes", "by_type", page, couchdb.Options{
-		"reduce":       false,
-		"include_docs": true,
-		"limit":        20,
-		"startkey":     []interface{}{eventType},
-		"endkey":       []interface{}{eventType + "z", emptyObject, emptyObject},
-	}); err != nil {
-		return nil, err
+func (s *store) QueryByEventType(
+	eventType string,
+) (events eventstore.Events, err error) {
+	input := &paginateViewInput{
+		DesignDoc: "_design/indexes",
+		View:      "by_type",
+		Options: couchdb.Options{
+			"reduce":        false,
+			"include_docs":  true,
+			"limit":         pageSize,
+			"inclusive_end": true,
+			"start_key":     []interface{}{eventType},
+			"end_key":       []interface{}{eventType, emptyObject, emptyObject},
+		},
 	}
 
-	for _, row := range page.Rows {
-		if row.Doc == nil {
-			continue
-		}
+	if err = paginateView(s.db, input, func(page *viewPage, lastPage bool) bool {
+		for _, row := range page.Rows {
+			if row.Doc == nil {
+				continue
+			}
 
-		events = append(events, *row.Doc)
+			events = append(events, *row.Doc)
+		}
+		return true
+	}); err != nil {
+		return nil, err
 	}
 
 	sort.Sort(events)
 	return events, nil
 }
 
-func (s *store) Query(id string) (eventstore.Events, error) {
-	var events eventstore.Events
-	page := new(viewPage)
-	if err := s.db.View("_design/indexes", "events", page, couchdb.Options{
-		"reduce":       false,
-		"include_docs": true,
-		"descending":   true,
-		"limit":        20,
-		"endkey":       []interface{}{id},
-		"startkey":     []interface{}{id, emptyObject},
-	}); err != nil {
-		return nil, err
+func (s *store) Query(
+	id string,
+) (events eventstore.Events, err error) {
+	input := &paginateViewInput{
+		DesignDoc: "_design/indexes",
+		View:      "events",
+		Options: couchdb.Options{
+			"reduce":        false,
+			"include_docs":  true,
+			"descending":    true,
+			"limit":         pageSize,
+			"inclusive_end": true,
+			"start_key":     []interface{}{id, emptyObject},
+			"end_key":       []interface{}{id},
+		},
 	}
 
-	for _, row := range page.Rows {
-		if row.Doc == nil {
-			continue
-		}
+	if err = paginateView(s.db, input, func(page *viewPage, lastPage bool) bool {
+		for _, row := range page.Rows {
+			if row.Doc == nil {
+				continue
+			}
 
-		events = append(events, *row.Doc)
+			events = append(events, *row.Doc)
+		}
+		return true
+	}); err != nil {
+		return nil, err
 	}
 
 	sort.Sort(events)
@@ -106,14 +145,23 @@ func (s *store) Put(id string, version int64, event eventstore.Event) error {
 	return err
 }
 
-type viewPage struct {
-	TotalRows int   `json:"total_rows"`
-	Offset    int   `json:"offset"`
-	Rows      []row `json:"rows"`
-}
+func paginateView(
+	db *couchdb.DB,
+	input *paginateViewInput,
+	callback paginateViewCallback,
+) (err error) {
+	for {
+		page := new(viewPage)
+		if err := db.View(input.DesignDoc, input.View, page, input.Options); err != nil {
+			return err
+		}
 
-type row struct {
-	ID  string            `json:"id"`
-	Key []interface{}     `json:"key"`
-	Doc *eventstore.Event `json:"doc,omitempty"`
+		lastPage := len(page.Rows) < input.Options["limit"].(int)
+		if getNext := callback(page, lastPage); !getNext || lastPage {
+			return nil
+		}
+
+		input.Options["start_key"] = page.Rows[len(page.Rows)-1].Key
+		input.Options["skip"] = 1
+	}
 }
