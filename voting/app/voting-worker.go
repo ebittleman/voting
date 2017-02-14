@@ -15,7 +15,7 @@ import (
 	"github.com/ebittleman/voting/views"
 	couchdbViews "github.com/ebittleman/voting/views/couchdb"
 	"github.com/ebittleman/voting/voting"
-	"github.com/ebittleman/voting/voting/handlers"
+	"github.com/ebittleman/voting/voting/subscribers"
 	votingViews "github.com/ebittleman/voting/voting/views"
 	couchdb "github.com/fjl/go-couchdb"
 )
@@ -67,7 +67,7 @@ func (c *votingWorker) Subscribers() ([]eventmanager.Subscriber, error) {
 		return c.subscribers, nil
 	}
 
-	openPollsHandler, err := c.OpenPollsHandler()
+	openPollsHandler, err := c.OpenPollsSubscriber()
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +242,7 @@ func (c *votingWorker) OpenPollsView() (*votingViews.OpenPolls, error) {
 	return c.openPollsView, nil
 }
 
-func (c *votingWorker) OpenPollsHandler() (eventmanager.Subscriber, error) {
+func (c *votingWorker) OpenPollsSubscriber() (eventmanager.Subscriber, error) {
 	if c.openPollsHandler != nil {
 		return c.openPollsHandler, nil
 	}
@@ -257,7 +257,7 @@ func (c *votingWorker) OpenPollsHandler() (eventmanager.Subscriber, error) {
 		return nil, err
 	}
 
-	openPollsHandler := handlers.NewOpenPolls(openPollsView, viewStore)
+	openPollsHandler := subscribers.NewOpenPolls(openPollsView, viewStore)
 	openPollsHandler.PollOpenedHandler(voting.PollOpened{})
 
 	c.openPollsHandler = openPollsHandler
