@@ -1,8 +1,12 @@
 package couchdb
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
+	"log"
 	"sort"
 
 	"github.com/ebittleman/voting/eventstore"
@@ -16,10 +20,23 @@ const (
 
 var emptyObject = map[string]interface{}{}
 
+type attachment struct {
+	Stub        bool   `json:"stub"`
+	ContentType string `json:"content_type"`
+	Length      int64  `json:"length"`
+}
+
+type docWrapper struct {
+	ID          string                `json:"_id"`
+	Rev         string                `json:"_rev"`
+	Attachments map[string]attachment `json:"_attachments,omitempty"`
+	eventstore.Event
+}
+
 type row struct {
-	ID  string            `json:"id"`
-	Key []interface{}     `json:"key"`
-	Doc *eventstore.Event `json:"doc,omitempty"`
+	ID      string        `json:"id"`
+	Key     []interface{} `json:"key"`
+	Wrapper *docWrapper   `json:"doc,omitempty"`
 }
 
 type viewPage struct {
@@ -76,11 +93,12 @@ func (s *store) QueryByEventType(
 
 	if err = paginateView(s.db, input, func(page *viewPage, lastPage bool) bool {
 		for _, row := range page.Rows {
-			if row.Doc == nil {
+			if row.Wrapper == nil {
+				log.Println("No Doc")
 				continue
 			}
 
-			events = append(events, *row.Doc)
+			events = append(events, row.Wrapper.Event)
 		}
 		return true
 	}); err != nil {
@@ -110,11 +128,21 @@ func (s *store) Query(
 
 	if err = paginateView(s.db, input, func(page *viewPage, lastPage bool) bool {
 		for _, row := range page.Rows {
-			if row.Doc == nil {
+			if row.Wrapper == nil {
 				continue
 			}
 
-			events = append(events, *row.Doc)
+			done, resolveErr := resolveSnapshot(s.db, row.Wrapper)
+			if resolveErr != nil {
+				fmt.Println("Error: Error Resolving Snapshot: ", resolveErr)
+				done = false
+			}
+
+			events = append(events, row.Wrapper.Event)
+
+			if done {
+				return false
+			}
 		}
 		return true
 	}); err != nil {
@@ -145,6 +173,25 @@ func (s *store) Put(id string, version int64, event eventstore.Event) error {
 	return err
 }
 
+func (s *store) Snapshot(event eventstore.Event, snapshot interface{}) error {
+	data, err := json.Marshal(snapshot)
+	if err != nil {
+		return err
+	}
+
+	docID := fmt.Sprintf("%s-%d", event.ID, event.Version)
+	wrapper := new(docWrapper)
+	if err = s.db.Get(docID, wrapper, nil); err != nil {
+		return err
+	}
+	att := new(couchdb.Attachment)
+	att.Body = bytes.NewBuffer(data)
+	att.Type = "application/json"
+	att.Name = "snapshot"
+	_, err = s.db.PutAttachment(wrapper.ID, att, wrapper.Rev)
+	return err
+}
+
 func paginateView(
 	db *couchdb.DB,
 	input *paginateViewInput,
@@ -164,4 +211,37 @@ func paginateView(
 		input.Options["start_key"] = page.Rows[len(page.Rows)-1].Key
 		input.Options["skip"] = 1
 	}
+}
+
+func resolveSnapshot(db *couchdb.DB, wrapper *docWrapper) (bool, error) {
+	if wrapper.Attachments == nil {
+		return false, nil
+	}
+
+	if _, ok := wrapper.Attachments["snapshot"]; !ok {
+		return false, nil
+	}
+
+	log.Println("Attempting to load from snapshot")
+
+	attachment, err := db.Attachment(
+		wrapper.ID,
+		"snapshot",
+		wrapper.Rev,
+	)
+	if err != nil {
+		return false, err
+	}
+
+	data, err := ioutil.ReadAll(attachment.Body)
+	if err != nil {
+		return false, err
+	}
+
+	log.Println("Snapdata: ", string(data))
+
+	raw := json.RawMessage(data)
+	wrapper.Event.Snapshot = &raw
+
+	return true, nil
 }

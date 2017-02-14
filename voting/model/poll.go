@@ -19,22 +19,24 @@ var (
 	// ErrPollAlreadyOpen is returned when trying to open a poll that is already
 	// open
 	ErrPollAlreadyOpen = errors.New("Poll already open")
+	// ErrPollAlreadyClose returned when attempting to close a closed poll
+	ErrPollAlreadyClose = errors.New("Poll already closed")
 )
 
 // Issue describes a question being asked in a poll.
 type Issue struct {
-	Topic      string
-	Choices    []string
-	CanWriteIn bool
+	Topic      string   `json:"topic"`
+	Choices    []string `json:"choices"`
+	CanWriteIn bool     `json:"can_write_in"`
 }
 
 // Selection describes the choice or write in of an issue.
 type Selection struct {
-	Issue   Issue
-	WroteIn bool
-	Choice  int
-	WriteIn string
-	Comment string
+	Issue   Issue  `json:"issue"`
+	WroteIn bool   `json:"wrote_in"`
+	Choice  int    `json:"choice"`
+	WriteIn string `json:"write_in"`
+	Comment string `json:"comment"`
 }
 
 // Ballot list of sections for a poll.
@@ -42,10 +44,10 @@ type Ballot []Selection
 
 // Poll aggregate root in the voting system
 type Poll struct {
-	IsOpen bool
+	IsOpen bool `json:"is_open"`
 
-	Issues  []Issue
-	Ballots []Ballot
+	Issues  []Issue  `json:"issues"`
+	Ballots []Ballot `json:"ballots"`
 
 	AggregateRoot
 }
@@ -81,13 +83,14 @@ func (p *Poll) OpenPolls() error {
 }
 
 // ClosePolls closes a poll stopping ballots from being placed.
-func (p *Poll) ClosePolls() {
+func (p *Poll) ClosePolls() error {
 	if !p.IsOpen {
-		return
+		return ErrPollAlreadyClose
 	}
 
-	p.IsOpen = true
+	p.IsOpen = false
 	p.Emit(pollClosedEvent())
+	return nil
 }
 
 // CastBallot adds a list of votes. Can only be run when the poll is open. And
@@ -117,6 +120,11 @@ func (p *Poll) CastBallot(ballot Ballot) error {
 	return nil
 }
 
+// Snapshot creates a snapshot of the polls current state
+func (p Poll) Snapshot() (interface{}, error) {
+	return p, nil
+}
+
 // LoadPoll loads a poll by id from a list of events.
 func LoadPoll(id string, events eventstore.Events) Poll {
 	var poll Poll
@@ -129,6 +137,16 @@ func LoadPoll(id string, events eventstore.Events) Poll {
 
 	sort.Sort(events)
 	for _, event := range events {
+
+		if event.Snapshot != nil {
+			log.Println("Event Has Snapshot, Num Events: ", len(events))
+			if err := json.Unmarshal(*event.Snapshot, &poll); err == nil {
+				continue
+			} else {
+				log.Println("Warn: Failed to Load From Snapshot")
+			}
+		}
+
 		switch event.Type {
 		case "PollCreated":
 			data := new(voting.PollCreated)

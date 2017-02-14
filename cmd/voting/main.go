@@ -8,6 +8,7 @@ import (
 	"github.com/ebittleman/voting/bus"
 	"github.com/ebittleman/voting/bus/ironmq"
 	"github.com/ebittleman/voting/eventmanager"
+	"github.com/ebittleman/voting/eventstore"
 	votingCouchdb "github.com/ebittleman/voting/eventstore/couchdb"
 	"github.com/ebittleman/voting/voting"
 	"github.com/ebittleman/voting/voting/commands"
@@ -48,8 +49,54 @@ func run() int {
 	forwarder.Subscribe(eventManager)
 
 	// generate a new poll id
-	id := uuid.NewV4().String()
+	// 013b7fbe-15cb-4c3d-8a81-5d92454a10e5
+	args := os.Args
+	id := args[1]
+	action := args[2]
+	switch action {
+	case "open":
+		// initialize the OpenPoll command and reuse the the same id to open our
+		// newly created poll
+		openPoll := commands.NewOpenPoll(
+			eventStore,
+			eventManager,
+			id,
+		)
 
+		// open the poll
+		err = openPoll.Run()
+		if err != nil {
+			log.Println("Fatal: ", err)
+			return 1
+		}
+	case "close":
+		// initialize the OpenPoll command and reuse the the same id to open our
+		// newly created poll
+		closePoll := commands.NewClosePoll(
+			eventStore,
+			eventManager,
+			id,
+		)
+
+		// close the poll
+		err = closePoll.Run()
+		if err != nil {
+			log.Println("Fatal: ", err)
+			return 1
+		}
+	default:
+		log.Println("Unkown Action: ", action)
+		return 1
+	}
+
+	return 0
+}
+
+func newPoll(
+	eventStore eventstore.EventStore,
+	eventManager eventmanager.EventManager,
+) int {
+	id := uuid.NewV4().String()
 	// initialize a new CreatePoll command
 	createPoll := commands.NewCreatePoll(
 		eventStore,
@@ -68,7 +115,7 @@ func run() int {
 	)
 
 	// create the poll
-	err = createPoll.Run()
+	err := createPoll.Run()
 	if err != nil {
 		log.Println("Fatal: ", err)
 		return 1

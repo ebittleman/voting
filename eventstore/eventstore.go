@@ -9,6 +9,7 @@ type Event struct {
 	Type      string           `json:"type"`
 	Timestamp int64            `json:"timestamp"`
 	Data      *json.RawMessage `json:"data,omitempty"`
+	Snapshot  *json.RawMessage `json:"snapshot,omitempty"`
 }
 
 // Events list of Event
@@ -33,5 +34,6 @@ type EventStore interface {
 	Query(string) (Events, error)
 	QueryByEventType(string) (Events, error)
 	Put(string, int64, Event) error
+	Snapshot(Event, interface{}) error
 	Refresh() error
 }

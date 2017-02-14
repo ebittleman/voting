@@ -7,9 +7,7 @@ import (
 	"testing"
 
 	jsondb "github.com/ebittleman/voting/database/json"
-	"github.com/ebittleman/voting/eventmanager"
 	"github.com/ebittleman/voting/eventstore/json"
-	"github.com/ebittleman/voting/voting/handlers"
 )
 
 func TestAppendIssue(t *testing.T) {
@@ -101,14 +99,6 @@ func TestCastBallot(t *testing.T) {
 	if err := poll.Commit(store, events); err != nil {
 		t.Fatal(err)
 	}
-
-	em := eventmanager.New()
-	handlers.Subscribe(nil, em)
-
-	for _, event := range events {
-		em.Publish(event)
-	}
-	em.Close()
 }
 
 const testData = `{"id":"poll2","version":1,"type":"PollCreated","timestamp":1486332029,"data":{"id":"poll2"}}

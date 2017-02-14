@@ -103,6 +103,10 @@ func (s *store) Put(id string, version int64, event eventstore.Event) error {
 	return s.table.Put(event)
 }
 
+func (s *store) Snapshot(event eventstore.Event, snapshot interface{}) error {
+	return nil
+}
+
 type table struct {
 	records []json.RawMessage
 	sync.RWMutex
